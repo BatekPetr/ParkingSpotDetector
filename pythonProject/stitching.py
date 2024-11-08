@@ -37,6 +37,9 @@ __doc__ += '\n' + parser.format_help()
 def main():
     args = parser.parse_args()
 
+    # Load camera parameters for image rectification
+    mtx = np.loadtxt("../Ezviz_C6N/C6N_intrinsics.txt")
+    dist = np.loadtxt("../Ezviz_C6N/C6N_distortions.txt")
     # read input images
     imgs = []
     for img_name in args.img:
@@ -44,7 +47,18 @@ def main():
         if img is None:
             print("can't read image " + img_name)
             sys.exit(-1)
-        imgs.append(img)
+        # Image undistortion
+        h, w = img.shape[:2]
+        newcameramtx, roi = cv.getOptimalNewCameraMatrix(mtx, dist, (w, h), 1, (w, h))
+
+        # undistort
+        dst = cv.undistort(img, mtx, dist, None, newcameramtx)
+
+        # crop the image
+        x, y, w, h = roi
+        dst = dst[y:y + h, x:x + w]
+
+        imgs.append(dst)
 
     # ![stitching]
     stitcher = cv.Stitcher.create(args.mode)
