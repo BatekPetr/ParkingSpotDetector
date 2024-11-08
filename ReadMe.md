@@ -16,6 +16,9 @@ when returning home.
 * Python
 
 ## Image processing pipeline
+0) Find Camera intrinsic parameters for image rectification.
+   * When pictures are not rectified, final panoramas are distorted and does not look pretty.
+   ![panoramas](./imgs/distorted_pano.jpg)
 1) Create panoramatic picture
    * Take several pictures while rotating the camera
    * Stitch them together using OpenCV Stitcher algorithm in order to get panoramatic picture over the parking lot.
