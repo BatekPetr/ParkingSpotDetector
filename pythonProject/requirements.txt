@@ -1,0 +1,3 @@
+matplotlib
+pyezviz
+pyqt6
