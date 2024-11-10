@@ -17,7 +17,6 @@ class VideoCapture:
 
     """
     def __init__(self, name):
-        print(self.__doc__)
 
         self.cap = cv2.VideoCapture(name)
         self.lock = threading.Lock()
@@ -74,3 +73,4 @@ class VideoCapture:
 if __name__ == '__main__':
     RTSP_URL = os.getenv("RTSP_URL")
     cap = VideoCapture(RTSP_URL)
+    print(cap.__doc__)
