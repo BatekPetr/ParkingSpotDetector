@@ -1,3 +1,5 @@
+absl-py
 matplotlib
 pyezviz
 pyqt6
+tensorflow-hub
