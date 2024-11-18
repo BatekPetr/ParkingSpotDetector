@@ -3,3 +3,4 @@ matplotlib
 pyezviz
 pyqt6
 tensorflow-hub
+ultralitics
