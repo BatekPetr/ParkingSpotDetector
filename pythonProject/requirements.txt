@@ -1,6 +1,10 @@
 absl-py
+autodistill
 matplotlib
 pyezviz
 pyqt6
+roboflow
+supervision
 tensorflow-hub
+tk
 ultralitics

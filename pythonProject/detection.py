@@ -21,7 +21,7 @@ def load_image(path):
     image = cv2.imread(path)
 
     # Convert image in BGR format to RGB.
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    #image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
     return image
 
