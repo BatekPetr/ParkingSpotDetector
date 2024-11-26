@@ -160,7 +160,7 @@ EfficientDet  = {'EfficientDet D0 512x512'   : 'https://tfhub.dev/tensorflow/eff
 
 def load_model(name='EfficientDet D4 1024x1024'):
     print('loading model: ', name)
-    local_path = os.path.join("NN_models", name)
+    local_path = os.path.join("../NN_models", name)
     if os.path.exists(local_path):
         model_url = local_path
         print("Found model locally in url: " + model_url)
@@ -260,10 +260,14 @@ if __name__=="__main__":
 
     # Add a batch dimension which is required by the model.
     for idx in range(len(images)):
+        down_width = 640
+        down_height = 640
+        down_points = (down_width, down_height)
+        images[idx] = cv2.resize(images[idx], down_points, interpolation=cv2.INTER_LINEAR)
         images[idx] = np.expand_dims(images[idx], axis=0)
 
     t1 = time.perf_counter_ns()
-    od_model = load_model('EfficientDet D4 1024x1024')
+    od_model = load_model('YOLOv8x_MyDataset_TF')
     print(f"Model loading time: {1e-9 * (time.perf_counter_ns() - t1)}.")
     ##  Perform Inference
     t1 = time.perf_counter_ns()

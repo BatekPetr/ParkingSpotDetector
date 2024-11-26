@@ -1,6 +1,5 @@
 import os
 import re
-import time
 
 import cv2
 import threading
@@ -16,20 +15,21 @@ class VideoCapture:
         - press 'ESC' to quit capturing thread
 
     """
-    def __init__(self, name):
+    def __init__(self, name, show_video=False):
 
         self.cap = cv2.VideoCapture(name)
         self.lock = threading.Lock()
         self.img = None
-        self.t = threading.Thread(target=self._reader)
+        self.show_video = show_video
+        self.t = threading.Thread(target=self._reader, args=(show_video,))
         # self.t.daemon = True
         self.t.start()
 
     # grab frames as soon as they are available
-    def _reader(self):
+    def _reader(self, show_video):
         snapshots_no = 0
         # Find how many snapshots have been taken in order to adjust name numbers
-        for root, dirs, files in os.walk("../imgs"):
+        for root, dirs, files in os.walk("../../imgs"):
             for name in files:
                 if re.search(r"^snapshot_[0-9]+\.jpg$", name):
                     snapshots_no += 1
@@ -40,7 +40,8 @@ class VideoCapture:
                 if not ret:
                     break
 
-            cv2.imshow("VideoCapture", cv2.resize(self.img, (960, 540)))
+            if show_video:
+                cv2.imshow("VideoCapture", cv2.resize(self.img, (960, 540)))
 
             key_press = cv2.waitKey(1)
             if  key_press == ord('s'):  # Save a snapshot when 's' is pressed
@@ -55,12 +56,17 @@ class VideoCapture:
     # retrieve latest frame
     def read(self):
         with self.lock:
-            return self.img
+            if self.img is not None:
+                return self.img.copy()
+            else:
+                return None
 
     def release(self):
         with self.lock:
             self.cap.release()
-            cv2.destroyWindow("VideoCapture")
+            # Test if VideoCapture window is open
+            if self.show_video:
+                cv2.destroyWindow("VideoCapture")
 
     def save_snapshot(self, img_name):
         with self.lock:

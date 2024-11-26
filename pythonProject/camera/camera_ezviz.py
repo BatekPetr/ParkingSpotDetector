@@ -1,22 +1,25 @@
+import cv2
 import datetime
 import os
-import re
+from pyezviz import EzvizClient, EzvizCamera
 import threading
 import time
 import tkinter as tk
 import typing
 from tkinter import DoubleVar
 
-import cv2
 
-from camera_calibration import CamIntrinsics
-from camera_rtsp import VideoCapture
-from pyezviz import EzvizClient, EzvizCamera
+from .camera_calibration import CamIntrinsics
+from .camera_rtsp import VideoCapture
+
+
+IMG_DIR = "../imgs"
 
 
 class CamEzviz():
 
-    def __init__(self, rtsp_url, ezviz_username, ezviz_password, img_save_dir="../imgs", img_save_name="C6N_IMG"):
+    def __init__(self, rtsp_url, ezviz_username, ezviz_password, img_save_dir="../imgs", img_save_name="C6N_IMG",
+                 show_video=True):
 
         # Ezviz API client
         self.client = EzvizClient(ezviz_username, ezviz_password, "eu")
@@ -26,24 +29,12 @@ class CamEzviz():
         print(self.camera.status())
 
         # RTSP Video stream
-        self.cap = VideoCapture(rtsp_url)
+        self.cap = VideoCapture(rtsp_url, show_video)
         # Camera parameters
-        self.instrinsics = CamIntrinsics("../Ezviz_C6N")
+        self.instrinsics = CamIntrinsics(os.path.join(os.path.dirname(__file__), "Ezviz_C6N"))
 
         self.img_save_dir = img_save_dir
         self.img_save_name = img_save_name
-        # try:
-        #     saved_images = os.listdir(img_save_dir)
-        #     saved_images.sort()
-        #
-        #     re_match = re.search(rf"{img_save_name}_([0-9])*", saved_images[-1])
-        #     last_img_no = re_match.group(1)
-        #     if last_img_no:
-        #         self.img_no = int(last_img_no) + 1
-        #     else:
-        #         self.img_no = 1
-        # except FileNotFoundError:
-        #     self.img_no = 1
 
     def control(self):
         # Create a window
@@ -78,11 +69,9 @@ class CamEzviz():
             elif event.keysym == 's':
                 print("'s' for Save pressed")
                 datetime_str = datetime.datetime.strftime(datetime.datetime.now(), "%Y%m%d_%H%M%S")
-                img = self.take_img(f"{self.img_save_dir}/{self.img_save_name}_{datetime_str}.jpg")
+                img = self.take_img(f"{self.img_save_dir}/{self.img_save_name}_{datetime_str}")
                 rect_img = self.undistort(img)
                 cv2.imwrite(f"{self.img_save_dir}/{self.img_save_name}_{datetime_str}_rect.jpg", rect_img)
-                # self.img_no += 1
-            # elif event.keysym == 'ESC':
 
         root.bind("<KeyPress>", on_key_press)
 
@@ -93,7 +82,7 @@ class CamEzviz():
         root.mainloop()
 
 
-    def scan(self, name: typing.Union[str, None] = None, path: os.PathLike[any] = "../imgs",
+    def scan(self, name: typing.Union[str, None] = None, path: os.PathLike[any] = None,
              undistort = True):
         """
         Take scan of the scene. Camera rotates and takes multiple pictures.
@@ -103,6 +92,9 @@ class CamEzviz():
         :param undistort: Whether to undistort images
         :return: arr[cv.Mat] images
         """
+        if path is None:
+            path = self.img_save_dir
+
         out_imgs = []
         if name:
             img_path_name = os.path.join(path, name)
@@ -160,29 +152,49 @@ class CamEzviz():
         self.client.close_session()
         self.cap.release()
 
-    def undistort(self, in_images, out_images = None, idx = None):
+    def undistort(self, in_images, #: typing.Union[cv2.MatLike| list[cv2.typing.MatLike]],
+                  out_images: list = None, idx: int = None):
         """
-        Undistorts images. Supply output list and idx for processing in own new thread.
+        Undistort one or more images.
 
         :param in_images: Input image or a list of images
-        :param out_images: Output list for results
+        :param out_images: Output list for results.
         :param idx: Index into output list
         :return: Undistorted image or image list
         """
-        if out_images:
-            out_images[idx] = self.instrinsics.undistort(in_images)
-            return out_images[idx]
-        else:
+
+        if out_images is None:
             out_images = []
-            if isinstance(in_images, list):
-                for img in in_images:
-                    out_images.append(self.instrinsics.undistort(img))
-                return out_images
+
+        # Undistort List of images
+        if isinstance(in_images, list):
+            for img in in_images:
+                out_images.append(self.instrinsics.undistort(img))
+            return out_images
+        # Undistort a single image
+        else:
+            if idx is not None and idx < len(out_images):
+                # Note: This is intended for threaded undistortion
+                # ToDo: Debug and Fix
+                out_images[idx] = self.instrinsics.undistort(in_images)
+                return out_images[idx]
             else:
                 return self.instrinsics.undistort(in_images)
 
-    def take_img(self, img_name: typing.Union[str, None], suffix: str = "",
+    def take_img(self, img_name: typing.Union[str, None] = None, suffix: str = "",
                  out_imgs = None, threads = None):
+        """Take an image from VideoCapture.
+
+        ToDo: Debug and correct threading implementation. As it does not work 100% at the moment.
+        :param img_name: Image name. If specified, image is saved to disk.
+        :param suffix: Optional img_name suffix
+        :param out_imgs: Output images array. If specified, rectification is performed in a new thread.
+        :param threads:  List with pointers to rectification threads
+        """
+
+        if suffix == "":
+            suffix = ".jpg"
+
         img = self.cap.read()
 
         if isinstance(out_imgs, list) and isinstance(threads, list):
@@ -206,7 +218,7 @@ if __name__=="__main__":
 
     RTSP_URL = os.getenv("RTSP_URL")
 
-    cam = CamEzviz(RTSP_URL, EZVIZ_USERNAME, EZVIZ_PASSWORD, img_save_dir="../imgs/parking_dataset")
+    cam = CamEzviz(RTSP_URL, EZVIZ_USERNAME, EZVIZ_PASSWORD, img_save_dir=os.path.join(IMG_DIR, "parking_dataset"))
 
     ## Perform camera scan, rectify and save images
     # t1 = time.time_ns()

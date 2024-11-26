@@ -1,9 +1,7 @@
 import cv2
 import glob
 import matplotlib.pyplot as plt
-import numpy as np
 import os
-
 
 
 def display_sample_images(images):
