@@ -14,14 +14,13 @@ from __future__ import print_function
 import os
 import time
 
-import numpy as np
 import cv2 as cv
 
 import argparse
 import sys
 
-from camera_calibration import CamIntrinsics
-from pythonProject.camera_ezviz import CamEzviz
+from pythonProject.camera.camera_calibration import CamIntrinsics
+from pythonProject.camera.camera_ezviz import CamEzviz
 
 
 def undistort(in_images):

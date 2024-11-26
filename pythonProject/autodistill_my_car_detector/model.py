@@ -31,7 +31,7 @@ class MyCarDetector(DetectionBaseModel):
 
 
 if __name__ == "__main__":
-    model = MyCarDetector("YOLOv11x_MyDataset_imgsz1024.pt")
-    detections = model.predict("../../../imgs/distorted_1.jpg")
+    model = MyCarDetector(os.path.join("model_files", "YOLOv11x_MyDataset_imgsz1024.pt"))
+    detections = model.predict("../../imgs/distorted_1.jpg")
 
     time.sleep(5)
