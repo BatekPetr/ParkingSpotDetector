@@ -152,7 +152,7 @@ class CamEzviz():
         self.client.close_session()
         self.cap.release()
 
-    def undistort(self, in_images, #: typing.Union[cv2.MatLike| list[cv2.typing.MatLike]],
+    def undistort(self, in_images, #: typing.Union[cv2.typing.MatLike| list[cv2.typing.MatLike]],
                   out_images: list = None, idx: int = None):
         """
         Undistort one or more images.
@@ -168,18 +168,18 @@ class CamEzviz():
 
         # Undistort List of images
         if isinstance(in_images, list):
-            for img in in_images:
-                out_images.append(self.instrinsics.undistort(img))
-            return out_images
+            return self.instrinsics.undistort(in_images)
         # Undistort a single image
         else:
-            if idx is not None and idx < len(out_images):
+            if ((out_images is not None) and
+                    (idx is not None) and
+                    (idx < len(out_images))):
                 # Note: This is intended for threaded undistortion
                 # ToDo: Debug and Fix
-                out_images[idx] = self.instrinsics.undistort(in_images)
+                out_images[idx] = self.instrinsics.undistort_img(in_images)
                 return out_images[idx]
             else:
-                return self.instrinsics.undistort(in_images)
+                return self.instrinsics.undistort_img(in_images)
 
     def take_img(self, img_name: typing.Union[str, None] = None, suffix: str = "",
                  out_imgs = None, threads = None):

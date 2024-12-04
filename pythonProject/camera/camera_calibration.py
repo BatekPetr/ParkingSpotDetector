@@ -1,7 +1,8 @@
 import os.path
+import typing
 
 import numpy as np
-import cv2 as cv
+import cv2
 import glob
 
 
@@ -34,7 +35,7 @@ class CamIntrinsics:
         success = True
 
         # termination criteria
-        criteria = (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+        criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
 
         # prepare object points, like (0,0,0), (1,0,0), (2,0,0) ....,(6,5,0)
         objp = np.zeros((n_rows * n_cols, 3), np.float32)
@@ -45,29 +46,29 @@ class CamIntrinsics:
         imgpoints = []  # 2d points in image plane.
 
         for fname in images_path_names:
-            img = cv.imread(fname)
-            gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+            img = cv2.imread(fname)
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
             # Find the chess board corners
-            ret, corners = cv.findChessboardCorners(gray, (n_cols, n_rows), None)
+            ret, corners = cv2.findChessboardCorners(gray, (n_cols, n_rows), None)
 
             # If found, add object points, image points (after refining them)
             if ret == True:
                 objpoints.append(objp)
 
-                corners2 = cv.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
+                corners2 = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
                 imgpoints.append(corners2)
 
                 if draw_corners:
                     # Draw and display the corners
-                    cv.drawChessboardCorners(img, (n_cols, n_rows), corners2, ret)
-                    cv.imshow('img', img)
-                    cv.waitKey(500)
+                    cv2.drawChessboardCorners(img, (n_cols, n_rows), corners2, ret)
+                    cv2.imshow('img', img)
+                    cv2.waitKey(500)
 
-        cv.destroyAllWindows()
+        cv2.destroyAllWindows()
 
         # Calibration
-        ret, mtx, dist, rvecs, tvecs = cv.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
+        ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
         if ret:
             self.mtx = mtx
             self.dist = dist
@@ -96,24 +97,112 @@ class CamIntrinsics:
             print("Parameters are not present in the expected format.")
             return False
 
-    def undistort(self, img):
+    def undistort_img(self, img):
         """
         Undistorts/rectifies image.
 
         :param img: cv2.Mat image
         :return: undistorted cv2.Mat image
         """
-
-        h,  w = img.shape[:2]
-        newcameramtx, roi = cv.getOptimalNewCameraMatrix(self.mtx, self.dist, (w,h), 1, (w,h))
+        h, w = img.shape[:2]
+        newcameramtx, roi = cv2.getOptimalNewCameraMatrix(self.mtx, self.dist, (w, h), 1, (w, h))
 
         # undistort
-        dst = cv.undistort(img, self.mtx, self.dist, None, newcameramtx)
+        dst = cv2.undistort(img, self.mtx, self.dist, None, newcameramtx)
 
         # crop the image
         x, y, w, h = roi
         dst = dst[y:y + h, x:x + w]
+
         return dst
+
+    def undistort(self, imgs #: typing.Union[cv2.typing.MatLike | list[cv2.typing.MatLike]]
+                  ):
+        """
+        Undistorts/rectifies images in a list.
+
+        :param imgs: list of cv2.Mat image
+        :return: list of undistorted cv2.Mat images
+        """
+
+        if isinstance(imgs, list):
+            out_imgs = []
+            for img in imgs:
+                out_imgs.append(self.undistort_img(img))
+            return out_imgs
+        else:
+            return self.undistort_img(imgs)
+
+    def cylindrical_warp_img(self, img):
+        focal_length = (self.mtx[0,0] + self.mtx[1,1])/2.0
+        h, w = img.shape[:2]
+        # Define the center of the image
+        cx, cy = w // 2, h // 2
+
+        # Create a map for the cylindrical projection
+        map_x = np.zeros((h, w), dtype=np.float32)
+        map_y = np.zeros((h, w), dtype=np.float32)
+
+        for y in range(h):
+            for x in range(w):
+                # Convert to cylindrical coordinates
+                theta = (x - cx) / focal_length
+                h_ = (y - cy) / focal_length
+                x_ = focal_length * np.tan(theta) + cx
+                y_ = focal_length * h_ / np.cos(theta) + cy
+
+                # Map coordinates
+                map_x[y, x] = x_
+                map_y[y, x] = y_
+
+        # Remap the image
+        warped_image = cv2.remap(img, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+        return warped_image
+
+    def cylindrical_warp(self, imgs):
+        if isinstance(imgs, list):
+            out_imgs = []
+            for img in imgs:
+                out_imgs.append(self.cylindrical_warp_img(img))
+            return out_imgs
+        else:
+            return self.cylindrical_warp_img(imgs)
+
+    def spherical_warp_img(self, image):
+        focal_length = (self.mtx[0,0] + self.mtx[1,1])/2.0
+        h, w = image.shape[:2]
+        cx, cy = w // 2, h // 2  # Principal point
+
+        # Create mapping arrays
+        map_x = np.zeros((h, w), dtype=np.float32)
+        map_y = np.zeros((h, w), dtype=np.float32)
+
+        for y in range(h):
+            for x in range(w):
+                # Convert to spherical coordinates
+                theta = (x - cx) / focal_length
+                phi = (y - cy) / focal_length
+
+                # Map to Cartesian coordinates on the sphere
+                x_sphere = focal_length * np.tan(theta) + cx
+                y_sphere = focal_length * (np.sin(phi) / np.cos(theta)) + cy
+
+                # Set the mapping
+                map_x[y, x] = x_sphere
+                map_y[y, x] = y_sphere
+
+        # Perform the remapping
+        warped_image = cv2.remap(image, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+        return warped_image
+
+    def spherical_warp(self, imgs):
+        if isinstance(imgs, list):
+            out_imgs = []
+            for img in imgs:
+                out_imgs.append(self.spherical_warp_img(img))
+            return out_imgs
+        else:
+            return self.spherical_warp_img(imgs)
 
 
 if __name__=="__main__":
