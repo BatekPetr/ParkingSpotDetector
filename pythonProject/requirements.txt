@@ -1,5 +1,6 @@
 absl-py
 autodistill
+imutils
 matplotlib
 pyezviz
 pyqt6
