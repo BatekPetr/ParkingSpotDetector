@@ -10,13 +10,14 @@ Use this script for lens undistortion.
 import argparse
 import glob
 import sys
+import typing
 
 import cv2
 
 from pythonProject.camera.camera_calibration import CamIntrinsics
 
 
-def undistort_images_from_files(imgs_file_names: str, cam_intrinsics: CamIntrinsics):
+def load_images(imgs_file_names: typing.Union[str, list[str]]):
     in_imgs_names = []
     in_images = []
 
@@ -41,9 +42,7 @@ def undistort_images_from_files(imgs_file_names: str, cam_intrinsics: CamIntrins
                 in_imgs_names.append(img_name)
                 in_images.append(img)
 
-    undistorted_imgs = cam_intrinsics.undistort(in_images)
-
-    return undistorted_imgs, in_imgs_names
+    return in_images, in_imgs_names
 
 
 if __name__ == '__main__':
@@ -62,7 +61,8 @@ if __name__ == '__main__':
 
     # Load camera parameters for image rectification
     cam_intrinsics = CamIntrinsics("./Ezviz_C6N")
-    undistorted_imgs, in_image_names = undistort_images_from_files(args.img, cam_intrinsics)
+    in_images, in_image_names = load_images(args.img)
+    undistorted_imgs = cam_intrinsics.undistort(in_images)
 
     for img, name in zip(undistorted_imgs, in_image_names):
         cv2.imwrite(name[:-4] + "_rect" + name[-4:], img)

@@ -11,7 +11,6 @@ or scans.
 # Python 2/3 compatibility
 from __future__ import print_function
 
-import glob
 import os
 import time
 
@@ -25,7 +24,7 @@ import imutils
 from pythonProject.camera.camera_calibration import CamIntrinsics
 from pythonProject.camera.camera_ezviz import CamEzviz
 from pythonProject.camera.undistort_imgs import undistort_images_from_files
-from pythonProject.my_stitching import find_homography_to_base
+from pythonProject.stitching.my_stitching import find_homography
 
 
 def stitch(in_images, mode):
@@ -86,7 +85,7 @@ if __name__ == '__main__':
         cv2.imwrite(args.output + "_stitched.jpg", stitched)
     ref_img = cv2.imread("base_rect_old.jpg", cv2.IMREAD_GRAYSCALE)  # Reference image.
     ref_mask = cv2.imread("base_rect_mask.jpg", cv2.IMREAD_GRAYSCALE)  # Reference image.
-    homography, mask = find_homography_to_base(ref_img, stitched, ref_mask)
+    homography, mask = find_homography(ref_img, stitched, ref_mask)
 
     # Use this matrix to transform the
     # colored image wrt the reference image.

@@ -1,17 +1,27 @@
 import cv2
+import imutils
 import numpy as np
 
 
 class MouseSketcher:
     """Class serving for arbitrary shape selection using mouse drag."""
 
-    def __init__(self, windowname, dests):
+    def __init__(self, windowname, image):
         self.polygon_points = []
         self.drawing = False
 
         self.windowname = windowname
-        self.dests = dests
-        self.mask = np.zeros(dests.shape[:2], dtype=np.uint8)
+
+        # Make sure that canvas fits on the screen
+        h, w = image.shape[:2]
+        canvas_width = 1924
+        if w > 1924:
+            self.img_ratio = canvas_width / float(w)
+            canvas_dim = (canvas_width, int(h * self.img_ratio))
+
+        self.dests = cv2.resize(image, canvas_dim)
+
+        self.mask = np.zeros(image.shape[:2], dtype=np.uint8)
 
         self.show()
         cv2.setMouseCallback(self.windowname, self.on_mouse)
@@ -40,7 +50,7 @@ class MouseSketcher:
         elif event == cv2.EVENT_LBUTTONUP:
             self.drawing = False
             if len(self.polygon_points) > 2:
-                cv2.fillPoly(self.mask, [np.array(self.polygon_points)], color=255)
+                cv2.fillPoly(self.mask, [np.int32(np.array(self.polygon_points) / self.img_ratio)], color=255)
 
             self.polygon_points.clear()
 

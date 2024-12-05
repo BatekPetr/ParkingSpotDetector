@@ -8,17 +8,13 @@ import tkinter as tk
 import typing
 from tkinter import DoubleVar
 
-
-from .camera_calibration import CamIntrinsics
-from .camera_rtsp import VideoCapture
-
-
-IMG_DIR = "../imgs"
+from pythonProject.camera.camera_calibration import CamIntrinsics
+from pythonProject.camera.camera_rtsp import VideoCapture
 
 
 class CamEzviz():
 
-    def __init__(self, rtsp_url, ezviz_username, ezviz_password, img_save_dir="../imgs", img_save_name="C6N_IMG",
+    def __init__(self, rtsp_url, ezviz_username, ezviz_password, img_save_dir=None, img_save_name="C6N_IMG",
                  show_video=True):
 
         # Ezviz API client
@@ -32,6 +28,19 @@ class CamEzviz():
         self.cap = VideoCapture(rtsp_url, show_video)
         # Camera parameters
         self.instrinsics = CamIntrinsics(os.path.join(os.path.dirname(__file__), "Ezviz_C6N"))
+
+        if img_save_dir is None:
+            # Get the absolute path of the current script
+            script_path = os.path.abspath(__file__)
+
+            # Get the directory containing the script
+            script_dir = os.path.dirname(script_path)
+
+            img_save_dir = os.path.join(script_dir, "imgs")
+            # Check if the folder exists
+            if not os.path.exists(img_save_dir):
+                # Create the folder
+                os.makedirs(img_save_dir)
 
         self.img_save_dir = img_save_dir
         self.img_save_name = img_save_name
@@ -47,7 +56,7 @@ class CamEzviz():
             var_x.set(val)
             self.camera.move_coordinates(x_axis=var_x.get(), y_axis=0)  # y_axis move does not work due to EZVIZ API
 
-        x_res = 0.05
+        x_res = 0.02
         x = tk.Scale(root, from_=0.3, to=0.7, resolution=x_res, variable=var_x,
                      orient=tk.HORIZONTAL, command=slider_x_on_change)
         x.pack()
@@ -216,9 +225,11 @@ if __name__=="__main__":
     EZVIZ_USERNAME = os.getenv("EZVIZ_USERNAME")
     EZVIZ_PASSWORD = os.getenv("EZVIZ_PASSWORD")
 
+    IMG_DIR = os.getenv("IMG_DIR")
+
     RTSP_URL = os.getenv("RTSP_URL")
 
-    cam = CamEzviz(RTSP_URL, EZVIZ_USERNAME, EZVIZ_PASSWORD, img_save_dir=os.path.join(IMG_DIR, "parking_dataset"))
+    cam = CamEzviz(RTSP_URL, EZVIZ_USERNAME, EZVIZ_PASSWORD, img_save_dir=IMG_DIR)
 
     ## Perform camera scan, rectify and save images
     # t1 = time.time_ns()
