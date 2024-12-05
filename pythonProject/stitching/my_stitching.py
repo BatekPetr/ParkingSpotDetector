@@ -10,7 +10,7 @@ import imutils
 import numpy as np
 
 from pythonProject.camera.camera_calibration import CamIntrinsics
-from pythonProject.camera.undistort_imgs import load_images
+from pythonProject.image_manipulation import load_images
 
 
 DEBUG = False
@@ -332,7 +332,7 @@ if __name__ == "__main__":
     my_stitcher = MyStitcher(matching=Matching.SIFT)
 
     imgs, _ = load_images(["../imgs/pano/template"])
-    imgs = preprocess_images(imgs)
+    # imgs = preprocess_images(imgs)
 
     #imgs[0], imgs[1] = imgs[1], imgs[0]
     ref_img = imgs[0]
@@ -357,7 +357,7 @@ if __name__ == "__main__":
 
     # Display image
     cv2.imshow("Pano Plane", imutils.resize(pano, width=1280))
-    # cv2.imwrite("base_rect_pano_ORB.jpg", pano)
+    cv2.imwrite("template_pano_det.jpg", pano)
     # # h, w = pano.shape[:2]
     # # cv2.imshow("base_rect_pano_plane_mask.jpg", imutils.resize(
     # #     cv2.warpPerspective(ref_mask, np.float32(transforms[0]), (w, h)), width=1280))

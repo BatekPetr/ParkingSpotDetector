@@ -1,8 +1,19 @@
+#!/usr/bin/env python
+
+'''
+Script for YOLO object detection
+================
+'''
+
+import argparse
+
 import cv2
 import os
+
+import numpy as np
 from ultralytics import YOLO
 
-from .detection import load_images
+from pythonProject import image_manipulation
 
 
 class YOLODetector:
@@ -10,10 +21,11 @@ class YOLODetector:
     def __init__(self, path_to_yolo_weights: str):
         self.model = YOLO(path_to_yolo_weights)
 
-    def detect_in_images(self, file_pattern: str, folder: str="../imgs"):
-        images = load_images("../imgs", "distorted_*.jpg")
+    def detect_in_images(self, images: list[np.ndarray], names: list[str] = None):
+        if names is None:
+            names = [None] * len(images)
 
-        for image in images:
+        for image, name in zip(images, names):
             results = self.model(image)
 
             for result in results:
@@ -29,6 +41,10 @@ class YOLODetector:
                         # convert to int
                         x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
 
+                        # Find center ob box detection
+                        cx = int((x1 + x2) / 2)
+                        cy = int((y1 + y2) / 2)
+
                         # get the class
                         cls = int(box.cls[0])
 
@@ -39,14 +55,17 @@ class YOLODetector:
                         colour = self.get_colors(cls)
 
                         # draw the rectangle
-                        cv2.rectangle(image, (x1, y1), (x2, y2), colour, 2)
+                        # cv2.rectangle(image, (x1, y1), (x2, y2), colour, 2)
+                        cv2.circle(image, (cx, cy), 5, (0, 0, 255), -1)
 
                         # put the class name and confidence on the image
-                        cv2.putText(image, f'{classes_names[int(box.cls[0])]} {box.conf[0]:.2f}', (x1, y1),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 1, colour, 2)
+                        # cv2.putText(image, f'{classes_names[int(box.cls[0])]} {box.conf[0]:.2f}', (x1, y1),
+                        #             cv2.FONT_HERSHEY_SIMPLEX, 1, colour, 2)
 
                 # show the image
-            cv2.imshow('frame', image)
+            cv2.imshow('Yolo detection', image)
+            if name:
+                cv2.imwrite(name[:-4] + "_det" + name[-4:], image)
             cv2.waitKey(0)
             cv2.destroyAllWindows()
 
@@ -104,23 +123,36 @@ class YOLODetector:
         return tuple(color)
 
 
+
 if __name__=="__main__":
+    parser = argparse.ArgumentParser(prog='YOLO_detection.py',
+                                     description='Use NN model to detect objects in images or video. Supply image names'
+                                                 'or Unix style pathname pattern/')
+    parser.add_argument('--img', nargs='+', help='input images')
 
-    model = YOLODetector(os.path.join("./NN_models", "YOLOv11n_MyDataset_imgsz640.pt"))
-    # model.detect_in_images("distorted_3.jpg", folder="../imgs")
 
-    # Load environment variables
-    EZVIZ_USERNAME = os.getenv("EZVIZ_USERNAME")
-    EZVIZ_PASSWORD = os.getenv("EZVIZ_PASSWORD")
+    __doc__ += '\n' + parser.format_help()
+    print(__doc__)
 
-    RTSP_URL = os.getenv("RTSP_URL")
-    from pythonProject.camera.camera_ezviz import CamEzviz
-    cam = CamEzviz(RTSP_URL, EZVIZ_USERNAME, EZVIZ_PASSWORD, img_save_dir="../../imgs/parking_dataset", show_video=False)
+    args = parser.parse_args()
 
-    import threading
-    t = threading.Thread(target=model.detect_in_video, args=(cam,))
-    t.daemon = True
-    t.start()
+    model = YOLODetector(os.path.join("./NN_models", "YOLOv11x_MyDataset_imgsz1024.pt"))
+    if args.img:    # Perform detection on images
+        imgs, img_names = image_manipulation.load_images(args.img)
+        model.detect_in_images(imgs, img_names)
+    else:           # Perform detection in video
+        # Load environment variables
+        EZVIZ_USERNAME = os.getenv("EZVIZ_USERNAME")
+        EZVIZ_PASSWORD = os.getenv("EZVIZ_PASSWORD")
 
-    cam.control()
-    cam.close()
+        RTSP_URL = os.getenv("RTSP_URL")
+        from pythonProject.camera.camera_ezviz import CamEzviz
+        cam = CamEzviz(RTSP_URL, EZVIZ_USERNAME, EZVIZ_PASSWORD, img_save_dir="../../imgs/parking_dataset", show_video=False)
+
+        import threading
+        t = threading.Thread(target=model.detect_in_video, args=(cam,))
+        t.daemon = True
+        t.start()
+
+        cam.control()
+        cam.close()
