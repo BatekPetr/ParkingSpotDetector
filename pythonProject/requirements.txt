@@ -2,6 +2,7 @@ absl-py
 autodistill
 imutils
 matplotlib
+pynput
 pyezviz
 pyqt6
 roboflow

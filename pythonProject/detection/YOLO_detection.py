@@ -6,6 +6,7 @@ Script for YOLO object detection
 '''
 
 import argparse
+from dataclasses import dataclass
 
 import cv2
 import os
@@ -16,51 +17,65 @@ from ultralytics import YOLO
 from pythonProject import image_manipulation
 
 
+@dataclass
+class Detection:
+    bbox: np.array
+    center: np.array
+    cls_id: int
+    cls_name: str
+    confidence: float
+
+
 class YOLODetector:
 
     def __init__(self, path_to_yolo_weights: str):
         self.model = YOLO(path_to_yolo_weights)
+
+
+    def detect_in_image(self, image: np.ndarray, confidence=0.1):
+        results = self.model(image)
+        detections = []
+
+        for result in results:
+            # iterate over each box
+            for box in result.boxes:
+                box_conf = box.conf[0]
+                # check if confidence is greater than 40 percent
+                if box_conf > confidence:
+                    # get coordinates
+                    [x1, y1, x2, y2] = box.xyxy[0]
+                    bbox = np.array([(x1, y1), (x2, y2)])
+                    # Find center of box detection
+                    center = np.array([(x1 + x2) / 2, (y1 + y2) / 2])
+
+                    # get the class
+                    cls_id = int(box.cls[0])
+
+                    # get the class name
+                    cls_name = result.names[cls_id]
+
+                    detections.append(Detection(bbox, center, cls_id, cls_name, box_conf))
+
+        return detections
 
     def detect_in_images(self, images: list[np.ndarray], names: list[str] = None):
         if names is None:
             names = [None] * len(images)
 
         for image, name in zip(images, names):
-            results = self.model(image)
+            detections = self.detect_in_image(image, confidence=0.1)
 
-            for result in results:
-                # get the classes names
-                classes_names = result.names
+            for detection in detections:
+                # get the respective colour
+                colour = self.get_colors(detection.cls_id)
 
-                # iterate over each box
-                for box in result.boxes:
-                    # check if confidence is greater than 40 percent
-                    if box.conf[0] > 0.1:
-                        # get coordinates
-                        [x1, y1, x2, y2] = box.xyxy[0]
-                        # convert to int
-                        x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+                # draw the rectangle
+                cv2.rectangle(image, detection.bbox[0], detection.bbox[1], colour, 2)
+                cv2.circle(image, detection.center, 5, (0, 0, 255), -1)
 
-                        # Find center ob box detection
-                        cx = int((x1 + x2) / 2)
-                        cy = int((y1 + y2) / 2)
-
-                        # get the class
-                        cls = int(box.cls[0])
-
-                        # get the class name
-                        class_name = classes_names[cls]
-
-                        # get the respective colour
-                        colour = self.get_colors(cls)
-
-                        # draw the rectangle
-                        # cv2.rectangle(image, (x1, y1), (x2, y2), colour, 2)
-                        cv2.circle(image, (cx, cy), 5, (0, 0, 255), -1)
-
-                        # put the class name and confidence on the image
-                        # cv2.putText(image, f'{classes_names[int(box.cls[0])]} {box.conf[0]:.2f}', (x1, y1),
-                        #             cv2.FONT_HERSHEY_SIMPLEX, 1, colour, 2)
+                # put the class name and confidence on the image
+                cv2.putText(image, f'{detection.cls_name} {detection.confidence:.2f}', detection.bbox[0],
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, colour, 2)
 
                 # show the image
             cv2.imshow('Yolo detection', image)
