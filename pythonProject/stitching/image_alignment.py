@@ -10,6 +10,7 @@ import imutils
 import numpy as np
 import multiprocessing
 
+from pythonProject.camera.camera_calibration import CamIntrinsics
 from pythonProject.detection.YOLO_detection import YOLODetector
 from pythonProject.image_manipulation import load_images
 from pythonProject.stitching.my_stitching import (preprocess_images, find_homography, concatenate_images,
@@ -49,7 +50,7 @@ if __name__ == "__main__":
 
     # cv2.imwrite("parkslots_pano_det.jpg", parkslots)
 
-    imgs, _ = load_images(["../imgs/pano/test_4_morning"])
+    imgs, _ = load_images(["../imgs/pano/test_afternoon"])
     imgs = preprocess_images(imgs )
     imgs[0], imgs[1] = imgs[1], imgs[0]
 
@@ -76,10 +77,12 @@ if __name__ == "__main__":
     print(f"Stitching Time: {time.perf_counter() - t_start}")
 
     t_start = time.perf_counter()
-    matches = my_stitcher.matching(pano_descriptors, parkslots_descriptors)
-    homography, mask = find_homography(pano_keypoints, parkslots_keypoints, matches)
-    _, th_pano, th_parkslots = concatenate_images(pano, parkslots, homography)
-    h, w = pano.shape[:2]
+    matches = my_stitcher.matching(parkslots_descriptors, pano_descriptors)
+    homography, mask = find_homography(parkslots_keypoints, pano_keypoints, matches)
+    # _, th_parkslots, th_pano = concatenate_images(parkslots, pano, homography)
+    th_parkslots = np.eye(3, 3, dtype=np.float32)
+    th_pano = homography
+    h, w = parkslots.shape[:2]
     aligned_pano = cv2.warpPerspective(pano, np.float32(th_pano), (w, h))
     print(f"Alignement Time: {time.perf_counter() - t_start}")
 
@@ -121,9 +124,19 @@ if __name__ == "__main__":
     cv2.addWeighted(parking_slots_pano, alpha, aligned_pano, 1 - alpha, 0, aligned_pano)
     print("Free parking slots detection time: ", time.perf_counter() - t_start)
 
+    with open("./pano_mask.json", "r") as f:
+        json_data = json.load(f)
+        mask_points = json_data[0]["points"]
+
+    pano_mask = np.zeros(aligned_pano.shape, dtype=np.uint8)
+    cv2.fillPoly(pano_mask, np.array([mask_points]), (255, 255, 255))
+    aligned_pano = cv2.bitwise_and(aligned_pano, pano_mask)
+
+    # intrinsics = CamIntrinsics(os.path.join("./camera", "Ezviz_C6N"))
+    # aligned_pano = intrinsics.cylindrical_warp(aligned_pano)
     print(f"Total time: {time.perf_counter() - show_start}")
     cv2.imshow("Detections in ALIGNED", imutils.resize(aligned_pano, width=1924))
-    cv2.imwrite("masking.jpg", aligned_pano)
+    # cv2.imwrite("results.jpg", aligned_pano)
     cv2.waitKey()
 
 
