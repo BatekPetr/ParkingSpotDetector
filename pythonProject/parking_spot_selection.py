@@ -90,7 +90,7 @@ class ParkingPtsSelection:
         self.rg_data, self.current_box, self.support_lines, self.help_lines, self.current_line = [], [], [], [], []
         self.box_lines = []
         self.imgw = self.imgh = 0
-        self.canvas_max_width, self.canvas_max_height = 1924, 1280
+        self.canvas_max_width, self.canvas_max_height = 5000, 1280
 
     def upload_image(self):
         """Uploads and displays an image on the canvas, resizing it to fit within specified dimensions."""
@@ -98,8 +98,8 @@ class ParkingPtsSelection:
 
         self.image = Image.open(self.filedialog.askopenfilename(filetypes=[("Image Files", "*.jpg"),
                                                                            ("Image Files", "*.jpeg"),
-                                                                           ("Image Files", "*.png"),
-                                                                           ("Image Files", "*.json")]))
+                                                                           ("Image Files", "*.png")
+                                                                           ]))
         if not self.image:
             return
 
