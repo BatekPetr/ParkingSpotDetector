@@ -88,4 +88,15 @@ whole area.
 5) Finaly YOLOv11s model was trained on Kaggle and/or Colab
 6) As can be seen on video: ![Live Video](./imgs/LiveDetection.gif)
 Approx. FPS of 1 and lags in video stream are not superb. But since the intention is to take images and compose panorama,
-it is good enough for the usecase.
+it is good enough for the usecase. Detection at night: ![Night Live Video](./imgs/LiveDetectionNight.gif)
+7) At this point two main part: Image Stiching and Car NN Detector were ready. The time has come to join two parts 
+together. In order to be able to detect available parking spaces, they need to be defined first. In order to do this, 
+a one "template" panorama was created. This panorama serves as a baseline and all new images and panoramas will be 
+transformed into its coordinates. Available parking spaces were selected with the help of Ultralytics 
+[Parking Management module](https://github.com/ultralytics/ultralytics/blob/main/ultralytics/solutions/parking_management.py) 
+Some minor improvements like support for larger images, parking box json loading and supporting lines for drawing were 
+implemented in my [parking_spot_selection module](./pythonProject/sketching/parking_spot_selection.py).
+Resulting template panorama including selected parking spaces:
+![Template Parkslots](./imgs/template_parkslots.png)
+As can be seen, only parking space along the main one-way street were selected for now. Generally, it would be possible 
+to select even places further away with expectation of worse detection accuracy.
