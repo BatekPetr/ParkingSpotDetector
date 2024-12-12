@@ -1,5 +1,8 @@
+*.env
+*.pickle
 /pythonProject/environment.sh
-/Ezviz_C6N/
+/pythonProject/camera/Ezviz_C6N/
 .idea/
 /pythonProject/pyEzviz.log
 /imgs/
+/pythonProject/camera/Ezviz_C6N/CS-C6N-B0-1G2WF.dav
