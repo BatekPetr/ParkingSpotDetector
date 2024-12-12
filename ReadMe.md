@@ -79,4 +79,13 @@ whole area.
    It was help-full, but detections required significant manual corrections 
    and adding box-labels for a lot of missed detections.
    2) After the first image set creation a custom model of YOLOv11x architecture was trained. This model performs much better detection than general models.
-   3) Another 500 images were auto-labelled using the first custom YOLO model version.
+   3) Another 500 images were auto-labelled using the first custom YOLO model version. 
+   The auto-labels needed to be verified and corrected. After manual corrections, data-augmentation (flipping, rotating, 
+   noise addition, etc.) were added using Roboflow tools.
+   4) Final dataset consisting of almost 1500 images is available on 
+   [Roboflow](https://app.roboflow.com/testing-ehxhf/cardetector-kkdtp/6)
+   * Big 👏👏👏 THANKS 👏👏👏 goes here to my beloved wife, who helped with manual labeling and verification!
+5) Finaly YOLOv11s model was trained on Kaggle and/or Colab
+6) As can be seen on video: ![Live Video](./imgs/LiveDetection.gif)
+Approx. FPS of 1 and lags in video stream are not superb. But since the intention is to take images and compose panorama,
+it is good enough for the usecase.
