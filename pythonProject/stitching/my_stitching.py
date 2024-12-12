@@ -105,6 +105,7 @@ class MyStitcher:
         # cv2.waitKey()
 
         # Buffer keypoints and descriptors for ref_img and img
+        # ToDo: Use only those keypoints from img, which do not have correspondence in ref_img
         buffered_keypoints = transform_keypoints(kp1, th) + transform_keypoints(kp2, th_img)
         buffered_descriptors = np.vstack((d1, d2))
 
@@ -313,6 +314,7 @@ def preprocess_images(imgs: list[np.ndarray]):
     intrinsics = CamIntrinsics(os.path.join("./camera", "Ezviz_C6N"))
 
     imgs = intrinsics.undistort(imgs)
+    # imgs = intrinsics.spherical_warp(imgs)
 
     return imgs
 
@@ -332,7 +334,7 @@ if __name__ == "__main__":
     my_stitcher = MyStitcher(matching=Matching.SIFT)
 
     imgs, _ = load_images(["../imgs/pano/template"])
-    # imgs = preprocess_images(imgs)
+    imgs = preprocess_images(imgs)
 
     #imgs[0], imgs[1] = imgs[1], imgs[0]
     ref_img = imgs[0]
@@ -365,6 +367,7 @@ if __name__ == "__main__":
     #     pickle.dump((pano, transforms, keypoints_to_list(buffered_keypoints), buffered_descriptors), handle)
 
     # np.save("base_rect_pano_plane", np.array((pano, transforms, buffered_keypoints, buffered_descriptors)))
+    # intrinsics = CamIntrinsics(os.path.join("./camera", "Ezviz_C6N"))
     # pano = intrinsics.cylindrical_warp(pano)
     # # Display image
     # cv2.imshow("Pano Cylindrical Warp", imutils.resize(pano, width=1280))

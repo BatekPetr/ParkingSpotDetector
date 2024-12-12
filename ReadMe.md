@@ -26,7 +26,28 @@ whole area.
 1) Create panoramatic picture
    * Take several pictures while rotating the camera.
    * Undistort images.
-   * Stitch them together using OpenCV Stitcher algorithm in order to get panoramatic picture over the parking lot.
+   * Original idea was to use OpenCV Sticher class to perform stitching. 
+   However, it turned out to be not suitable because Stitcher algorithm does not output homography transformations,
+   which are needed to align a new panorama with parking slot template, where parking slots are defined.
+   * Own stitching algorithm was developed in [MyStitching](./pythonProject/stitching/my_stitching.py) module. It offers
+   following functionality:
+     * Recursively stitches list of images of arbitrary length.
+     ![template_pano.jpg](./imgs/template_pano.jpg) *Fig: Template Panorama
+     * Outputs final homogeneous transformations of individual images to the resulting panorama.
+     * Buffers and transforms image keypoints to avoid unnecessary multiple computations.
+     * Image warping (cylindrical and spherical) was tested to avoid Edge stretching, where objects near the edges 
+     of the panorama appear larger than those in the center. 
+     ![Pano Spherical Warp](./imgs/template_pano_spherical.jpg)
+     *Fig: Panorama with Spherical Warp
+     
+     As can be seen on [Pano Spherical Warp](./imgs/template_pano_spherical.jpg) warping corrects Edge stretching 
+     however images are not properly stitched together. Another disadvantage of warping is that it does not 
+     preserve straight lines. Having straight lines is beneficial in rectangular parking slots selection. 
+     Therefore, no warping prior to stitching was performed. Warping can be applied to final panorama to slightly 
+     improve the visual effect.
+   * SIFT and ORB feature detection and matching was implemented (using OpenCV functions). SIFT proved to be more 
+   accurate and robust in cost of longer processing time. The cost is acceptable by the usecase, so SIFT is used primarily.
+   * ToDo: Image blending was not yet implemented as it is not necessary for the usecase.
 2) Use Neural Network to detect parked vehicles.
    1) The first "naive" approach was to use existing pre-trained NN models. 
       * TensorFlow implementation of model [EfficientDet](https://www.kaggle.com/models/tensorflow/efficientdet/tensorFlow2/d7) 
