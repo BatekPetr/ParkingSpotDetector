@@ -1,4 +1,5 @@
 *.env
+*.pickle
 /pythonProject/environment.sh
 /pythonProject/camera/Ezviz_C6N/
 .idea/
