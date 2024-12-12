@@ -53,6 +53,9 @@ class VideoCapture:
 
         self.release()
 
+    def is_opened(self):
+        return self.cap.isOpened()
+
     # retrieve latest frame
     def read(self):
         with self.lock:

@@ -157,6 +157,10 @@ class CamEzviz():
 
         return out_imgs
 
+    def is_opened(self):
+        return self.cap.is_opened()
+
+
     def close(self):
         self.client.close_session()
         self.cap.release()

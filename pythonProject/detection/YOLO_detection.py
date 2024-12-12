@@ -11,9 +11,12 @@ from dataclasses import dataclass
 import cv2
 import os
 
+import imutils
 import numpy as np
+
 from ultralytics import YOLO
 
+from pythonProject.detection.fps import FPS
 from pythonProject import image_manipulation
 
 
@@ -84,11 +87,19 @@ class YOLODetector:
             cv2.waitKey(0)
             cv2.destroyAllWindows()
 
-    def detect_in_video(self, cam):
+    def detect_in_video(self, cam, video_name: str = None):
 
         image = cam.take_img()
+        if video_name:
+            # Define the codec and create a VideoWriter object
+            fourcc = cv2.VideoWriter_fourcc(*'XVID')  # You can use 'XVID', 'MJPG', 'MP4V', etc.
+            h, w = imutils.resize(image, 1024).shape[:2]
+            out = cv2.VideoWriter(video_name, fourcc, 20, (w, h))  # Output file, codec, fps, resolution
 
-        while image is not None:
+        fps = FPS().start()
+
+
+        while cam.is_opened():
             results = self.model(image)
 
             for result in results:
@@ -120,11 +131,37 @@ class YOLODetector:
                         cv2.putText(image, f'{classes_names[int(box.cls[0])]} {box.conf[0]:.2f}', (x1, y1),
                                     cv2.FONT_HERSHEY_SIMPLEX, 1, colour, 2)
 
-                # show the image
-            cv2.imshow('frame', cv2.resize(image, (960, 540)))
+            # show the image
+            image = imutils.resize(image, 1024)
+            cv2.imshow('frame', image)
+            out.write(image)
+
+            fps.update()
             image = cam.take_img()
 
+            # Display FPS on the video frame
+            fps_text = f"FPS: {fps.fps():.2f}"
+
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 1
+            font_color = (0, 0, 0)  # Černý text
+            thickness = 2
+            (text_width, text_height), _ = cv2.getTextSize(fps_text, font, font_scale, thickness)
+            position = (10, 30)
+            background_color = (255, 255, 255)
+
+            # Vykreslete obdélník jako pozadí
+            cv2.rectangle(image,
+                          (position[0] - 10, position[1] - text_height - 10),
+                          (position[0] + text_width + 10, position[1] + 10),
+                          background_color,
+                          -1)
+            cv2.putText(image, fps_text, position, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_color, thickness)
+
         cv2.destroyWindow('frame')
+        # Stop FPS tracking
+        fps.stop()
+        out.release()
 
 
     # Function to get class colors
@@ -151,7 +188,7 @@ if __name__=="__main__":
 
     args = parser.parse_args()
 
-    model = YOLODetector(os.path.join("./NN_models", "YOLOv11x_MyDataset_imgsz1024.pt"))
+    model = YOLODetector(os.path.join("./NN_models", "CarDetector_YOLOv11s_1024.pt"))
     if args.img:    # Perform detection on images
         imgs, img_names = image_manipulation.load_images(args.img)
         model.detect_in_images(imgs, img_names)
@@ -165,9 +202,11 @@ if __name__=="__main__":
         cam = CamEzviz(RTSP_URL, EZVIZ_USERNAME, EZVIZ_PASSWORD, img_save_dir="../../imgs/parking_dataset", show_video=False)
 
         import threading
-        t = threading.Thread(target=model.detect_in_video, args=(cam,))
+        t = threading.Thread(target=model.detect_in_video, args=(cam, "LiveDetection.avi"))
         t.daemon = True
         t.start()
 
         cam.control()
         cam.close()
+
+        t.join()
