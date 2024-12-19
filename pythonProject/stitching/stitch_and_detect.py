@@ -1,3 +1,11 @@
+#!/usr/bin/env python
+
+'''
+Script for panorama creation and parking slot detection.
+================
+'''
+
+import argparse
 import json
 import os
 import pickle
@@ -10,11 +18,11 @@ import imutils
 import numpy as np
 import multiprocessing
 
+from pythonProject import image_manipulation
 from pythonProject.camera.camera_calibration import CamIntrinsics
 from pythonProject.detection.YOLO_detection import YOLODetector
-from pythonProject.image_manipulation import load_images
 from pythonProject.stitching.my_stitching import (preprocess_images, find_homography, concatenate_images,
-                                                  Matching, MyStitcher, keypoints_to_list, list_to_keypoints)
+                                                  KeypointFeatures, MyStitcher, keypoints_to_list, list_to_keypoints)
 
 
 def detect_cars_in_image(img, idx = None, queue = None):
@@ -34,8 +42,19 @@ def detect_cars_in_image(img, idx = None, queue = None):
 
 
 if __name__ == "__main__":
-    matching = Matching.SIFT
-    my_stitcher = MyStitcher(matching)
+    parser = argparse.ArgumentParser(prog='stitch_and_detect.py',
+                                     description='Stitch images (either loaded from files or after taking by camera) '
+                                                 'and perform available parking slot detection.')
+    parser.add_argument('--img', nargs='+', help='input images')
+
+    __doc__ += '\n' + parser.format_help()
+    print(__doc__)
+
+    args = parser.parse_args()
+
+
+    keypoint_features = KeypointFeatures.SIFT
+    my_stitcher = MyStitcher(keypoint_features)
     # # Create panorama from images
     # ref_imgs, _ = load_images(["../imgs/pano/template"])
     # ref_imgs = preprocess_images(ref_imgs)
@@ -50,12 +69,39 @@ if __name__ == "__main__":
 
     # cv2.imwrite("parkslots_pano_det.jpg", parkslots)
 
-    imgs, _ = load_images(["../imgs/pano/test_afternoon"])
-    imgs = preprocess_images(imgs )
-    imgs[0], imgs[1] = imgs[1], imgs[0]
+    image_loading_start = time.perf_counter()
+    if args.img:    # Perform detection on images
+        print("Loading images from disk.")
+        imgs, img_names = image_manipulation.load_images(args.img)
+        imgs = preprocess_images(imgs)
+    else:
+        # Load environment variables
+        EZVIZ_USERNAME = os.getenv("EZVIZ_USERNAME")
+        EZVIZ_PASSWORD = os.getenv("EZVIZ_PASSWORD")
+
+        RTSP_URL = os.getenv("RTSP_URL")
+        from pythonProject.camera.camera_ezviz import CamEzviz
+
+        cam = CamEzviz(RTSP_URL, EZVIZ_USERNAME, EZVIZ_PASSWORD, img_save_dir="../imgs/testing",
+                       show_video=True, use_multiprocessing=True)
+        print("Starting camera scan.")
+        imgs, pano_with_keypoints, pano_transforms = cam.scan(positions=[(0.5, 0), (0.4, 0), (0.5, 6), (0.62, 0)],
+                                                              name="night_test_4", undistort=True, stitcher=my_stitcher)
+        cam.close()
+
+    print(f"Loading time {time.perf_counter() - image_loading_start}")
+
+    # for img in imgs:
+    #     cv2.imshow("Preprocessed IMG", imutils.resize(img, width=1928))
+    #     cv2.waitKey()
+    # cv2.destroyWindow("Preprocessed IMG")
+
+    # preprocess_start = time.perf_counter()
+    # #imgs = preprocess_images(imgs )
+    # imgs[0], imgs[1] = imgs[1], imgs[0]
+    # print (f"Image preprocessing time {time.perf_counter() - preprocess_start}")
 
     show_start = time.perf_counter()
-
     # Detect cars in images
     print("Starting car detection.")
     t_start = time.perf_counter()
@@ -70,20 +116,22 @@ if __name__ == "__main__":
         threads.append(t)
         t.start()
 
-    # print(f"Detection Time: {time.perf_counter() - t_start}")
-    print("Starting stitching.")
-    t_start = time.perf_counter()
-    pano, pano_transforms, pano_keypoints, pano_descriptors = my_stitcher.stitch(imgs)
-    print(f"Stitching Time: {time.perf_counter() - t_start}")
+    # print("Starting stitching.")
+    # t_start = time.perf_counter()
+    # pano_with_keypoints, pano_transforms = my_stitcher.stitch(imgs)
+    # pano = pano_with_keypoints.img
+    # print(f"Stitching Time: {time.perf_counter() - t_start}")
+    # cv2.imshow("Pano", imutils.resize(pano, width=1924))
+    # cv2.waitKey()
 
     t_start = time.perf_counter()
-    matches = my_stitcher.matching(parkslots_descriptors, pano_descriptors)
-    homography, mask = find_homography(parkslots_keypoints, pano_keypoints, matches)
+    matches = my_stitcher.matching(parkslots_descriptors, pano_with_keypoints.descriptors)
+    homography, mask = find_homography(parkslots_keypoints, pano_with_keypoints.keypoints, matches)
     # _, th_parkslots, th_pano = concatenate_images(parkslots, pano, homography)
     th_parkslots = np.eye(3, 3, dtype=np.float32)
     th_pano = homography
     h, w = parkslots.shape[:2]
-    aligned_pano = cv2.warpPerspective(pano, np.float32(th_pano), (w, h))
+    aligned_pano = cv2.warpPerspective(pano_with_keypoints.img, np.float32(th_pano), (w, h))
     print(f"Alignement Time: {time.perf_counter() - t_start}")
 
     parking_slots = []
@@ -134,9 +182,9 @@ if __name__ == "__main__":
 
     # intrinsics = CamIntrinsics(os.path.join("./camera", "Ezviz_C6N"))
     # aligned_pano = intrinsics.cylindrical_warp(aligned_pano)
-    print(f"Total time: {time.perf_counter() - show_start}")
+    print(f"Total time: {time.perf_counter() - image_loading_start}")
     cv2.imshow("Detections in ALIGNED", imutils.resize(aligned_pano, width=1924))
-    # cv2.imwrite("results.jpg", aligned_pano)
+    cv2.imwrite("results.jpg", aligned_pano)
     cv2.waitKey()
 
 
