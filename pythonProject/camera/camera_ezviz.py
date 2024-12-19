@@ -1,7 +1,15 @@
+import queue
+from asyncio import QueueEmpty
+
 import cv2
 import datetime
 import os
+
+import numpy as np
+from lxml.etree import SerialisationError
+from mpmath.identification import transforms
 from pyezviz import EzvizClient, EzvizCamera
+import multiprocessing
 import threading
 import time
 import tkinter as tk
@@ -10,12 +18,13 @@ from tkinter import DoubleVar
 
 from pythonProject.camera.camera_calibration import CamIntrinsics
 from pythonProject.camera.camera_rtsp import VideoCapture
+from pythonProject.stitching.my_stitching import MyStitcher
 
 
 class CamEzviz():
 
     def __init__(self, rtsp_url, ezviz_username, ezviz_password, img_save_dir=None, img_save_name="C6N_IMG",
-                 show_video=True):
+                 show_video=True, use_multiprocessing=False):
 
         # Ezviz API client
         self.client = EzvizClient(ezviz_username, ezviz_password, "eu")
@@ -24,8 +33,7 @@ class CamEzviz():
         self.camera.move_coordinates(x_axis=0.5, y_axis=0.0)
         print(self.camera.status())
 
-        # RTSP Video stream
-        self.cap = VideoCapture(rtsp_url, show_video)
+
         # Camera parameters
         self.instrinsics = CamIntrinsics(os.path.join(os.path.dirname(__file__), "Ezviz_C6N"))
 
@@ -44,6 +52,39 @@ class CamEzviz():
 
         self.img_save_dir = img_save_dir
         self.img_save_name = img_save_name
+
+        self.use_multiprocessing = use_multiprocessing
+        if use_multiprocessing:
+            self.queue = multiprocessing.Queue()
+            self.command_pipe, process_pipe = multiprocessing.Pipe()
+            self.p = multiprocessing.Process(target=self.video_capture_process, args=(rtsp_url, show_video, process_pipe))
+            self.p.start()
+        else:
+            # RTSP Video stream
+            self.cap = VideoCapture(rtsp_url, show_video)
+
+    def video_capture_process(self, rtsp_url, show_video, process_pipe):
+        # RTSP Video stream
+        cap = VideoCapture(rtsp_url, show_video)
+
+        # Wait untill VideoCapture is opened
+        while not cap.is_opened():
+            time.sleep(0.1)
+
+        # Manage Video Capture process
+        while True:
+            if process_pipe.poll():
+                command = process_pipe.recv()
+                if "read" == command:
+                    # Serialize the image using cv2.imencode
+                    success, encoded_image = cv2.imencode('.jpg', cap.read())
+                    if success:
+                        self.queue.put(encoded_image.tobytes())  # Put the byte array into the queue
+                    else:
+                        raise SerialisationError
+                elif "stop" == command:
+                    cap.release()
+                    break
 
     def control(self):
         # Create a window
@@ -90,9 +131,30 @@ class CamEzviz():
         root.bind("<Escape>", exit)
         root.mainloop()
 
+    def undistortion_thread(self, q_in: queue.Queue, q_out: queue.Queue):
+        while True:
+            img = q_in.get()
+            if img is None:
+                break
+            rect_img = self.undistort(img)
+            q_out.put(rect_img)
 
-    def scan(self, name: typing.Union[str, None] = None, path: os.PathLike[any] = None,
-             undistort = True):
+    def stitching_thread(self, q_in: queue.Queue, q_out: queue.Queue, stitcher: MyStitcher):
+        ref_img = q_in.get()
+        q_out.put(ref_img)
+        transforms = None
+
+        while True:
+            img = q_in.get()
+            if img is None:
+                q_out.put((ref_img, transforms))
+                break
+            q_out.put(img)
+            ref_img, transforms = stitcher.stitch([ref_img, img]) # ref_img becomes CVImageWithKeypoints
+
+    def scan(self, positions: list[(np.float32, np.float32)],
+             name: typing.Union[str, None] = None, path: os.PathLike[any] = None,
+             undistort = True, stitcher: MyStitcher = None):
         """
         Take scan of the scene. Camera rotates and takes multiple pictures.
 
@@ -110,52 +172,77 @@ class CamEzviz():
         else:
             img_path_name = None
 
+        img_queue = queue.Queue()
+
+        if undistort:
+            undistortion_queue = img_queue
+            undistorted_queue = queue.Queue()
+            undistort_thread = threading.Thread(target=self.undistortion_thread, args=(undistortion_queue,
+                                                                                       undistorted_queue))
+            undistort_thread.daemon = True
+            undistort_thread.start()
+
+        if stitcher is not None:
+            if undistort:
+                stitching_queue = undistorted_queue
+            else:
+                stitching_queue = img_queue
+            pano_queue = queue.Queue()
+            stitch_thread = threading.Thread(target=self.stitching_thread,
+                                             args=(stitching_queue, pano_queue, stitcher))
+            stitch_thread.daemon = True
+            stitch_thread.start()
+
         try:
-            threads = []
-            self.camera.move_coordinates(0.4 , y_axis=0.0)
-            time.sleep(10)
-            if undistort:
-                self.take_img(img_path_name, "_1.jpg", out_imgs, threads)
-            else:
-                out_imgs.append(self.take_img(img_path_name, "_1.jpg"))
+            for i, pos in enumerate(positions):
+                # Vertical movement to given coordinate is not supported.
+                # Must improvize for vertical movements.
+                for _ in range(pos[1]):
+                    self.camera.move("up")
+                    time.sleep(2)
 
-            self.camera.move_coordinates(0.5, y_axis=0.0)
-            time.sleep(10)
-            if undistort:
-                self.take_img(img_path_name, "_2.jpg", out_imgs, threads)
-            else:
-                out_imgs.append(self.take_img(img_path_name, "_2.jpg"))
+                # Movement in X direction
+                self.camera.move_coordinates(*pos)
+                time.sleep(10)
 
-            for i in range(6):
-                self.camera.move("up")
-                time.sleep(2)
-            time.sleep(5)
-            if undistort:
-                self.take_img(img_path_name, "_3.jpg", out_imgs, threads)
-            else:
-                out_imgs.append(self.take_img(img_path_name, "_3.jpg"))
+                img = self.take_img(img_path_name, f"_{i}.jpg")
+                img_queue.put(img)
 
-            for i in range(6):
-                self.camera.move("down")
-                time.sleep(2)
+                # return back to previous Y position
+                for _ in range(pos[1]):
+                    self.camera.move("down")
+                    time.sleep(2)
 
-            self.camera.move_coordinates(0.6, y_axis=0.0)
-            time.sleep(10)
-            if undistort:
-                self.take_img(img_path_name, "_4.jpg", out_imgs, threads)
-            else:
-                out_imgs.append(self.take_img(img_path_name, "_4.jpg"))
-
+            # Return camera to initial position
             self.camera.move_coordinates(0.5, y_axis=0.0)
 
-            for thread in threads:
-                thread.join()
+            if stitcher is not None:
+                stitching_queue.put(None)
+                stitch_thread.join()
+                while not pano_queue.empty():
+                    item = pano_queue.get()
+                    if pano_queue.empty():
+                        pano_with_keypoints, transforms = item
+                        break
+                    else:
+                        out_imgs.append(item)
+            else:
+                pano_with_keypoints, transforms = None
+
+            if undistort:
+                undistortion_queue.put(None)
+                undistort_thread.join()
+                while not undistorted_queue.empty():
+                    out_imgs.append(undistorted_queue.get())
+            else:
+                while not img_queue.empty():
+                    out_imgs.append(img_queue.get())
 
         except BaseException as exp:
             print(exp)
             return 1
 
-        return out_imgs
+        return out_imgs, pano_with_keypoints, transforms
 
     def is_opened(self):
         return self.cap.is_opened()
@@ -163,7 +250,13 @@ class CamEzviz():
 
     def close(self):
         self.client.close_session()
-        self.cap.release()
+
+        if self.use_multiprocessing:
+            self.command_pipe.send("stop")
+            self.p.join()
+            self.p.close()
+        else:
+            self.cap.release()
 
     def undistort(self, in_images, #: typing.Union[cv2.typing.MatLike| list[cv2.typing.MatLike]],
                   out_images: list = None, idx: int = None):
@@ -208,7 +301,17 @@ class CamEzviz():
         if suffix == "":
             suffix = ".jpg"
 
-        img = self.cap.read()
+        if self.use_multiprocessing:
+            self.command_pipe.send("read")
+
+            # Get the serialized image from the queue
+            encoded_image = self.queue.get()
+
+            # Deserialize the image using cv2.imdecode
+            nparr = np.frombuffer(encoded_image, np.uint8)  # Convert bytes back to NumPy array
+            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)  # Decode the image
+        else:
+            img = self.cap.read()
 
         if isinstance(out_imgs, list) and isinstance(threads, list):
             out_imgs.append(None)
@@ -233,7 +336,7 @@ if __name__=="__main__":
 
     RTSP_URL = os.getenv("RTSP_URL")
 
-    cam = CamEzviz(RTSP_URL, EZVIZ_USERNAME, EZVIZ_PASSWORD, img_save_dir=IMG_DIR)
+    cam = CamEzviz(RTSP_URL, EZVIZ_USERNAME, EZVIZ_PASSWORD, img_save_dir=IMG_DIR, use_multiprocessing=True)
 
     ## Perform camera scan, rectify and save images
     # t1 = time.time_ns()
