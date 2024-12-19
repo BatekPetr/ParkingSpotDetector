@@ -14,8 +14,8 @@ whole area.
   * https://pypi.org/project/pyezviz/
   * https://github.com/baqs/pyEzviz/
   * Unofficial Python package for controlling Ezviz camera implementing python-Ezviz API.
-* OpenCV
-* Python
+* OpenCV 4.10.0
+* Python 3.12
 
 ## Image processing pipeline
 0) Find Camera intrinsic parameters for image rectification.
