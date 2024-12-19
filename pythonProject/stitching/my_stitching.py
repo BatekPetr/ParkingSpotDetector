@@ -13,16 +13,14 @@ from pythonProject.camera.camera_calibration import CamIntrinsics
 from pythonProject.image_manipulation import load_images
 
 
-DEBUG = False
-
-class Matching(Enum):
+class KeypointFeatures(Enum):
     """Enum representing keypoint detection and matching method."""
     ORB  = 0
     SIFT = 1
 
 
 @dataclass
-class CVImageWithMatches:
+class CVImageWithKeypoints:
     """Dataclass holding image with corresponding keypoints and descriptors."""
     img: np.ndarray
     keypoints: typing.List[cv2.KeyPoint]
@@ -31,9 +29,11 @@ class CVImageWithMatches:
 
 class MyStitcher:
 
-    def __init__(self, matching: Matching = Matching.SIFT):
+    def __init__(self, keypoint_features: KeypointFeatures = KeypointFeatures.SIFT, debug = False):
 
-        if Matching.SIFT == matching:
+        self.debug = debug
+
+        if KeypointFeatures.SIFT == keypoint_features:
             # Initiate SIFT detector
             self.kp_detector = cv2.SIFT_create()
             self.matching = self.sift_matching
@@ -42,7 +42,7 @@ class MyStitcher:
             self.kp_detector = cv2.ORB_create(5000)
             self.matching = self.orb_matching
 
-    def find_keypoints_and_descriptors(self, image: typing.Union[CVImageWithMatches, np.ndarray], ref_mask=None) \
+    def find_keypoints_and_descriptors(self, image: typing.Union[CVImageWithKeypoints, np.ndarray], ref_mask=None) \
             -> (np.ndarray, list[cv2.KeyPoint], np.ndarray):
         """Unrolls keypoints and descriptors from CVImageWithMatches or extracts them from image using Keypoint detector.
         :param image: Input image with or without keypoints and descriptors
@@ -52,7 +52,7 @@ class MyStitcher:
         """
 
         # Use buffered keypoints and descriptors for image if available
-        if isinstance(image, CVImageWithMatches):
+        if isinstance(image, CVImageWithKeypoints):
             kp, d = image.keypoints, image.descriptors
             image = image.img
         else:  # Otherwise extract them from image using kp_detector
@@ -66,7 +66,7 @@ class MyStitcher:
 
         return image, kp, d
 
-    def stitch(self, imgs: list[typing.Union[np.ndarray, CVImageWithMatches]], ref_mask: np.ndarray = None,
+    def stitch(self, imgs: list[typing.Union[np.ndarray, CVImageWithKeypoints]], ref_mask: np.ndarray = None,
                th_imgs: list[np.ndarray] = []) -> [np.ndarray, list[np.ndarray]]:
         """Finds homographies between supplied images and stitches them.
         Recursively stitches one image after another to the reference.
@@ -79,17 +79,26 @@ class MyStitcher:
         :param matching: Keypoint detection and matching algorithm to use
         :return: cv2.Mat Panorama, Homographies of individual images to final panorama
         """
+
         ref_img = imgs.pop(0)
         img = imgs.pop(0)
 
         ref_img, kp1, d1 = self.find_keypoints_and_descriptors(ref_img, ref_mask)
         img, kp2, d2 = self.find_keypoints_and_descriptors(img)
 
+        if self.debug:
+            cv2.imshow("Preprocessed REF_IMG", imutils.resize(ref_img, width=1928))
+            cv2.waitKey()
+            cv2.destroyWindow("Preprocessed REF_IMG")
+            cv2.imshow("Preprocessed IMG", imutils.resize(img, width=1928))
+            cv2.waitKey()
+            cv2.destroyWindow("Preprocessed IMG")
+
         matches = self.matching(d1, d2)
 
         homography, mask = find_homography(kp1, kp2, matches)
 
-        if DEBUG:
+        if self.debug:
             matchesMask = mask.ravel().tolist()
             draw_params = dict(matchColor=(0, 255, 0),  # draw matches in green color
                                singlePointColor=None,
@@ -99,6 +108,7 @@ class MyStitcher:
             img_keypoints_matches = cv2.drawMatches(ref_img, kp1, img, kp2, matches, None, **draw_params)
             cv2.imshow("Keypoints and Matches", imutils.resize(img_keypoints_matches, width=1928))
             cv2.waitKey()
+            cv2.destroyWindow("Keypoints and Matches")
 
         out_image, th, th_img = concatenate_images(ref_img, img, homography)
         # cv2.imshow("Stitched Img", imutils.resize(outImage, width=1928))
@@ -107,6 +117,8 @@ class MyStitcher:
         # Buffer keypoints and descriptors for ref_img and img
         # ToDo: Use only those keypoints from img, which do not have correspondence in ref_img
         buffered_keypoints = transform_keypoints(kp1, th) + transform_keypoints(kp2, th_img)
+        if self.debug:
+            print(f"No of buffered keypoints: {len(buffered_keypoints)}")
         buffered_descriptors = np.vstack((d1, d2))
 
         # Add transform from the last stitching to the previous image transformations.
@@ -118,13 +130,13 @@ class MyStitcher:
         th_imgs.append(th_img)
 
         if len(imgs) == 0:  # Exit point from recursion. When no image is left for processing
-            return out_image, th_imgs, buffered_keypoints, buffered_descriptors
+            return CVImageWithKeypoints(out_image, buffered_keypoints, buffered_descriptors), th_imgs,
         else:  # Recursively apply this function to all images in input list
             if ref_mask is not None:
                 pano_h, pano_w = out_image.shape[:2]
                 ref_mask = cv2.warpPerspective(ref_mask, np.float32(th), (pano_w, pano_h))
-            return self.stitch([CVImageWithMatches(out_image, buffered_keypoints, buffered_descriptors), *imgs],
-                             ref_mask, th_imgs)
+            return self.stitch([CVImageWithKeypoints(out_image, buffered_keypoints, buffered_descriptors), *imgs],
+                               ref_mask, th_imgs)
 
     @classmethod
     def orb_matching(cls, d1: np.ndarray, d2: np.ndarray) -> list[cv2.DMatch]:
@@ -331,48 +343,45 @@ def list_to_keypoints(keypoint_list):
 
 
 if __name__ == "__main__":
-    my_stitcher = MyStitcher(matching=Matching.SIFT)
+    DEBUG = False
+    my_stitcher = MyStitcher(keypoint_features=KeypointFeatures.SIFT, debug=DEBUG)
 
-    imgs, _ = load_images(["../imgs/pano/template"])
+    imgs, _ = load_images(["../imgs/testing/night_test_1"])
     imgs = preprocess_images(imgs)
 
-    #imgs[0], imgs[1] = imgs[1], imgs[0]
-    ref_img = imgs[0]
+    imgs[0], imgs[1] = imgs[1], imgs[0]
+
     # ref_mask = create_mask(imgs[0])
     ref_mask = None #cv2.imread("base_rect_mask.jpg", cv2.IMREAD_GRAYSCALE)
     t_start = time.perf_counter()
-    pano, transforms, buffered_keypoints, buffered_descriptors = my_stitcher.stitch(imgs)
+
+    if DEBUG:
+        for img in imgs:
+            cv2.imshow("Preprocessed IMG", imutils.resize(img, width=1928))
+            cv2.waitKey()
+        cv2.destroyWindow("Preprocessed IMG")
+
+    pano_with_keypoints, transforms = my_stitcher.stitch(imgs)
+    pano = pano_with_keypoints.img
     print(f"Stitching Time: {time.perf_counter() - t_start}")
 
-
-
-    # #Test that image transform were computed correctly
-    # h, w = ref_img.shape[:2]
-    # corners_ref = [[0, 0], [0, h - 1], [w - 1, h - 1], [w - 1, 0]]  # .reshape(-1, 1, 2)
-    # for t in transforms:
-    #     corners_img = cv2.perspectiveTransform(np.float32([corners_ref]), t)
-    #     pano = cv2.polylines(pano, [np.int32(corners_img)], True, (255, 255, 255), 3, cv2.LINE_AA)
-
-    # pano = cv2.imread("base_rect_pano_plane.jpg")
-    # ref_mask = cv2.imread("base_rect_mask.jpg", cv2.IMREAD_GRAYSCALE)
-    # transforms = np.load("base_rect_pano_plane_transforms.npy")
+     #Test that image transform were computed correctly
+    if DEBUG:
+        h, w = imgs[0].shape[:2]
+        corners_ref = [[0, 0], [0, h - 1], [w - 1, h - 1], [w - 1, 0]]  # .reshape(-1, 1, 2)
+        for t in transforms:
+            corners_img = cv2.perspectiveTransform(np.float32([corners_ref]), t)
+            pano = cv2.polylines(pano, [np.int32(corners_img)], True, (255, 255, 255), 3, cv2.LINE_AA)
 
     # Display image
     cv2.imshow("Pano Plane", imutils.resize(pano, width=1280))
-    cv2.imwrite("template_pano_det.jpg", pano)
-    # # h, w = pano.shape[:2]
-    # # cv2.imshow("base_rect_pano_plane_mask.jpg", imutils.resize(
-    # #     cv2.warpPerspective(ref_mask, np.float32(transforms[0]), (w, h)), width=1280))
-    # with open("base_rect_pano_ORB.pickle", "wb") as handle:
-    #     pickle.dump((pano, transforms, keypoints_to_list(buffered_keypoints), buffered_descriptors), handle)
+    cv2.imwrite("pano.jpg", pano)
 
-    # np.save("base_rect_pano_plane", np.array((pano, transforms, buffered_keypoints, buffered_descriptors)))
     # intrinsics = CamIntrinsics(os.path.join("./camera", "Ezviz_C6N"))
     # pano = intrinsics.cylindrical_warp(pano)
     # # Display image
-    # cv2.imshow("Pano Cylindrical Warp", imutils.resize(pano, width=1280))
-    # cv2.imwrite("pano_cylindr.jpg", pano)
-
+    # cv2.imshow("Pano Warp", imutils.resize(pano, width=1280))
+    # cv2.imwrite("pano_warp.jpg", pano)
 
     cv2.waitKey(0)
     cv2.destroyAllWindows()
