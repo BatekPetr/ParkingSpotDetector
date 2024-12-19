@@ -89,7 +89,11 @@ whole area.
 6) As can be seen on video: ![Live Video](./imgs/LiveDetection.gif)
 Approx. FPS of 1 and lags in video stream are not superb. But since the intention is to take images and compose panorama,
 it is good enough for the usecase. Detection at night: ![Night Live Video](./imgs/LiveDetectionNight.gif)
-7) At this point two main part: Image Stiching and Car NN Detector were ready. The time has come to join two parts 
+
+Note: There as false and incorrect detections present in GIFs. It is expected as the small NN model was used. 
+Accuracy improvement would be possible with the use of larger model for the cost of longer inference time.
+Also, it shall be noted, that training set was heavily imbalanced with respect of Car-Truck-Person numbers.
+7) At this point two main parts: Image Stiching and Car NN Detector were ready. The time has come to join two parts 
 together. In order to be able to detect available parking spaces, they need to be defined first. In order to do this, 
 a one "template" panorama was created. This panorama serves as a baseline and all new images and panoramas will be 
 transformed into its coordinates. Available parking spaces were selected with the help of Ultralytics 
@@ -98,5 +102,9 @@ Some minor improvements like support for larger images, parking box json loading
 implemented in my [parking_spot_selection module](./pythonProject/sketching/parking_spot_selection.py).
 Resulting template panorama including selected parking spaces:
 ![Template Parkslots](./imgs/template_parkslots.png)
-As can be seen, only parking space along the main one-way street were selected for now. Generally, it would be possible 
+As can be seen, only parking spaces along the main one-way street were selected for now. Generally, it would be possible 
 to select even places further away with expectation of worse detection accuracy.
+8) Final result after taking new, actual images, stitching them and transforming stitched panorama into 
+parking slot "template" coordinates with outlined occupied and free parking places looks like this:
+![Detections in Panorama](./imgs/DetectionsInPanorama.jpg)
+9) 
