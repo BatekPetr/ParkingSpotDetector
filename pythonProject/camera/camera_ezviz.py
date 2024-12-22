@@ -1,5 +1,4 @@
 import queue
-from asyncio import QueueEmpty
 
 import cv2
 import datetime
@@ -7,7 +6,6 @@ import os
 
 import numpy as np
 from lxml.etree import SerialisationError
-from mpmath.identification import transforms
 from pyezviz import EzvizClient, EzvizCamera
 import multiprocessing
 import threading
@@ -21,7 +19,12 @@ from pythonProject.camera.camera_rtsp import VideoCapture
 from pythonProject.stitching.my_stitching import MyStitcher
 
 
-class CamEzviz():
+class DeviceError(Exception):
+    """Custom exception for device-related errors."""
+    pass
+
+
+class CamEzviz:
 
     def __init__(self, rtsp_url, ezviz_username, ezviz_password, img_save_dir=None, img_save_name="C6N_IMG",
                  show_video=True, use_multiprocessing=False):
@@ -76,15 +79,21 @@ class CamEzviz():
             if process_pipe.poll():
                 command = process_pipe.recv()
                 if "read" == command:
-                    # Serialize the image using cv2.imencode
-                    success, encoded_image = cv2.imencode('.jpg', cap.read())
-                    if success:
-                        self.queue.put(encoded_image.tobytes())  # Put the byte array into the queue
+                    img = cap.read()
+                    if img is None:
+                        self.queue.put(ValueError("Image is empty or could not be loaded. Camera is not ready."))
                     else:
-                        raise SerialisationError
+                        # Serialize the image using cv2.imencode
+                        success, encoded_image = cv2.imencode('.jpg', img)
+                        if success:
+                            self.queue.put(encoded_image.tobytes())  # Put the byte array into the queue
+                        else:
+                            raise SerialisationError
                 elif "stop" == command:
                     cap.release()
                     break
+
+        process_pipe.close()
 
     def control(self):
         # Create a window
@@ -245,7 +254,10 @@ class CamEzviz():
         return out_imgs, pano_with_keypoints, transforms
 
     def is_opened(self):
-        return self.cap.is_opened()
+        if self.use_multiprocessing:
+            return self.p.is_alive()
+        else:
+            return self.cap.is_opened()
 
 
     def close(self):
@@ -253,8 +265,8 @@ class CamEzviz():
 
         if self.use_multiprocessing:
             self.command_pipe.send("stop")
+            self.command_pipe.close()
             self.p.join()
-            self.p.close()
         else:
             self.cap.release()
 
@@ -301,28 +313,40 @@ class CamEzviz():
         if suffix == "":
             suffix = ".jpg"
 
-        if self.use_multiprocessing:
-            self.command_pipe.send("read")
+        img = None
+        start_t = time.perf_counter()
+        while img is None:
+            if self.use_multiprocessing:
+                if self.command_pipe.closed:
+                    break
 
-            # Get the serialized image from the queue
-            encoded_image = self.queue.get()
+                self.command_pipe.send("read")
 
-            # Deserialize the image using cv2.imdecode
-            nparr = np.frombuffer(encoded_image, np.uint8)  # Convert bytes back to NumPy array
-            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)  # Decode the image
-        else:
-            img = self.cap.read()
+                # Get the serialized image from the queue
+                from_video_process = self.queue.get()
+                if isinstance(from_video_process, bytes):
+                    encoded_image = from_video_process
+
+                    # Deserialize the image using cv2.imdecode
+                    nparr = np.frombuffer(encoded_image, np.uint8)  # Convert bytes back to NumPy array
+                    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)  # Decode the image
+            else:
+                if self.cap.is_opened():
+                    img = self.cap.read()
+                else:
+                    break
+
+            # Raise device error if cam image is unavailable for 10 s
+            if time.perf_counter() - start_t > 10:
+                raise DeviceError
 
         if isinstance(out_imgs, list) and isinstance(threads, list):
             out_imgs.append(None)
             threads.append(threading.Thread(target=self.undistort, args=(img, out_imgs, len(threads))))
             threads[len(threads) - 1].start()
 
-        #cv2.imshow("Snapshot", img)
         if img_name:
             cv2.imwrite(img_name + suffix, img)
-        #cv2.waitKey(1000)
-        #cv2.destroyWindow("Snapshot")
 
         return img
 
@@ -336,18 +360,10 @@ if __name__=="__main__":
 
     RTSP_URL = os.getenv("RTSP_URL")
 
+    # No significant improvement when multiprocessing used here
     cam = CamEzviz(RTSP_URL, EZVIZ_USERNAME, EZVIZ_PASSWORD, img_save_dir=IMG_DIR, use_multiprocessing=True)
 
-    ## Perform camera scan, rectify and save images
-    # t1 = time.time_ns()
-    # images = cam.scan("test", undistort=False)
-    # rectified_images = cam.undistort(images)
-    # for i in range(len(rectified_images)):
-    #     cv2.imwrite("rectified_" + str(i+1) + ".jpg", rectified_images[i])
-    #
-    # print("time: " + str(1e-9 * (time.time_ns() - t1)))
-
-    ## Control camera using keyboard
+    # Control camera using keyboard
     cam.control()
 
     cam.close()

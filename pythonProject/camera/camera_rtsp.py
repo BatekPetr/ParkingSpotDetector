@@ -4,6 +4,8 @@ import re
 import cv2
 import threading
 
+from pythonProject.camera.fps import FPS
+
 
 # bufferless VideoCapture
 class VideoCapture:
@@ -34,6 +36,8 @@ class VideoCapture:
                 if re.search(r"^snapshot_[0-9]+\.jpg$", name):
                     snapshots_no += 1
 
+        fps = FPS().start()
+
         while True:
             with self.lock:
                 ret, self.img = self.cap.read()
@@ -41,6 +45,10 @@ class VideoCapture:
                     break
 
             if show_video:
+                fps.update()
+
+                fps.add_to_image(self.img)
+
                 cv2.imshow("VideoCapture", cv2.resize(self.img, (960, 540)))
 
             key_press = cv2.waitKey(1)
