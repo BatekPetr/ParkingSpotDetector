@@ -70,7 +70,7 @@ class CamEzviz:
         # RTSP Video stream
         cap = VideoCapture(rtsp_url, show_video)
 
-        # Wait untill VideoCapture is opened
+        # Wait until VideoCapture is opened
         while not cap.is_opened():
             time.sleep(0.1)
 
@@ -147,111 +147,6 @@ class CamEzviz:
                 break
             rect_img = self.undistort(img)
             q_out.put(rect_img)
-
-    def stitching_thread(self, q_in: queue.Queue, q_out: queue.Queue, stitcher: MyStitcher):
-        ref_img = q_in.get()
-        q_out.put(ref_img)
-        transforms = None
-
-        while True:
-            img = q_in.get()
-            if img is None:
-                q_out.put((ref_img, transforms))
-                break
-            q_out.put(img)
-            ref_img, transforms = stitcher.stitch([ref_img, img]) # ref_img becomes CVImageWithKeypoints
-
-    def scan(self, positions: list[(np.float32, np.float32)],
-             name: typing.Union[str, None] = None, path: os.PathLike[any] = None,
-             undistort = True, stitcher: MyStitcher = None):
-        """
-        Take scan of the scene. Camera rotates and takes multiple pictures.
-
-        :param name: Name of the images to be taken. If None, images are not saved.
-        :param path: Path to save the images
-        :param undistort: Whether to undistort images
-        :return: arr[cv.Mat] images
-        """
-        if path is None:
-            path = self.img_save_dir
-
-        out_imgs = []
-        if name:
-            img_path_name = os.path.join(path, name)
-        else:
-            img_path_name = None
-
-        img_queue = queue.Queue()
-
-        if undistort:
-            undistortion_queue = img_queue
-            undistorted_queue = queue.Queue()
-            undistort_thread = threading.Thread(target=self.undistortion_thread, args=(undistortion_queue,
-                                                                                       undistorted_queue))
-            undistort_thread.daemon = True
-            undistort_thread.start()
-
-        if stitcher is not None:
-            if undistort:
-                stitching_queue = undistorted_queue
-            else:
-                stitching_queue = img_queue
-            pano_queue = queue.Queue()
-            stitch_thread = threading.Thread(target=self.stitching_thread,
-                                             args=(stitching_queue, pano_queue, stitcher))
-            stitch_thread.daemon = True
-            stitch_thread.start()
-
-        try:
-            for i, pos in enumerate(positions):
-                # Vertical movement to given coordinate is not supported.
-                # Must improvize for vertical movements.
-                for _ in range(pos[1]):
-                    self.camera.move("up")
-                    time.sleep(2)
-
-                # Movement in X direction
-                self.camera.move_coordinates(*pos)
-                time.sleep(10)
-
-                img = self.take_img(img_path_name, f"_{i}.jpg")
-                img_queue.put(img)
-
-                # return back to previous Y position
-                for _ in range(pos[1]):
-                    self.camera.move("down")
-                    time.sleep(2)
-
-            # Return camera to initial position
-            self.camera.move_coordinates(0.5, y_axis=0.0)
-
-            if stitcher is not None:
-                stitching_queue.put(None)
-                stitch_thread.join()
-                while not pano_queue.empty():
-                    item = pano_queue.get()
-                    if pano_queue.empty():
-                        pano_with_keypoints, transforms = item
-                        break
-                    else:
-                        out_imgs.append(item)
-            else:
-                pano_with_keypoints, transforms = None
-
-            if undistort:
-                undistortion_queue.put(None)
-                undistort_thread.join()
-                while not undistorted_queue.empty():
-                    out_imgs.append(undistorted_queue.get())
-            else:
-                while not img_queue.empty():
-                    out_imgs.append(img_queue.get())
-
-        except BaseException as exp:
-            print(exp)
-            return 1
-
-        return out_imgs, pano_with_keypoints, transforms
 
     def is_opened(self):
         if self.use_multiprocessing:
