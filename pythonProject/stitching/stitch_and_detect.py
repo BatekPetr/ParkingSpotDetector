@@ -21,11 +21,11 @@ import multiprocessing
 
 from lxml.etree import SerialisationError
 
-from pythonProject import image_manipulation
+from pythonProject.helpers import image_manipulation
 from pythonProject.camera.camera_ezviz import CamEzviz
 from pythonProject.detection.YOLO_detection import YOLODetector
 from pythonProject.stitching.my_stitching import (preprocess_images, find_homography, KeypointFeatures, MyStitcher,
-                                                  keypoints_to_list, list_to_keypoints)
+                                                  list_to_keypoints, CVImageWithKeypoints)
 
 
 def detect_cars_in_image_thread(img, idx = None, queue = None):
@@ -82,40 +82,28 @@ def stitching_thread(q_in: queue.Queue, q_out: queue.Queue, stitcher: MyStitcher
 
     print("Quitting stitching_thread.")
 
-def scan_stitch_detect(cam: CamEzviz, positions: list[(np.float32, np.float32)],
-                       name: typing.Union[str, None] = None, path: os.PathLike[any] = None,
-                       undistort = True, stitcher: MyStitcher = None, detected_queue: queue.Queue = None):
-    """
-    Take scan of the scene. Camera rotates and takes multiple pictures.
-
-    :param name: Name of the images to be taken. If None, images are not saved.
-    :param path: Path to save the images
-    :param undistort: Whether to undistort images
-    :return: arr[cv.Mat] images
-    """
-    if path is None:
-        path = cam.img_save_dir
-
-    out_imgs = []
-    if name:
-        img_path_name = os.path.join(path, name)
-    else:
-        img_path_name = None
-
+def set_up_threads_and_queues(undistort = None, stitcher = None, detected_queue: queue.Queue = None):
     # Define Queues for process connections
     img_queue = queue.Queue()
     undistorted_queue: queue.Queue = None
     stitching_queue: queue.Queue = None
     pano_queue: queue.Queue = None
     detection_queue = multiprocessing.Queue()
+    out_imgs = []
+
+    queues = [img_queue]
+    threads = []
 
     if undistort:
         undistortion_queue = img_queue
         undistorted_queue = queue.Queue()
         undistort_thread = threading.Thread(target=cam.undistortion_thread, args=(undistortion_queue,
-                                                                                   undistorted_queue))
+                                                                                  undistorted_queue))
         undistort_thread.daemon = True
         undistort_thread.start()
+
+        queues += [undistorted_queue]
+        threads.append(undistort_thread)
 
     if stitcher is not None:
         stitching_queue = queue.Queue()
@@ -125,11 +113,16 @@ def scan_stitch_detect(cam: CamEzviz, positions: list[(np.float32, np.float32)],
         stitch_thread.daemon = True
         stitch_thread.start()
 
+        queues += [stitching_queue, pano_queue]
+        threads.append(stitch_thread)
+
     if detected_queue is not None:
         detection_process = multiprocessing.Process(target=detect_cars_in_image_process, args=(detection_queue,
                                                                                                detected_queue))
         detection_process.daemon = True
         detection_process.start()
+
+        queues += [detection_queue]
 
     def manage_queues(img_queue, undistorted_queue, stitching_queue, detection_queue, out_imgs):
         if undistorted_queue is not None:
@@ -161,6 +154,73 @@ def scan_stitch_detect(cam: CamEzviz, positions: list[(np.float32, np.float32)],
                                                                            out_imgs))
     queue_management_thread.start()
 
+    threads.append(queue_management_thread)
+
+    return queues, threads, out_imgs, pano_queue
+
+
+def stitch_detect(imgs: list[np.ndarray], undistort = False, stitcher: MyStitcher = None,
+                  detected_queue: queue.Queue = None):
+
+    queues, threads, out_imgs, pano_queue = set_up_threads_and_queues(undistort, stitcher, detected_queue)
+    img_queue = queues[0]
+
+    try:
+        for img in imgs:
+            img_queue.put(img)
+
+        # Let threads and process start spinning
+        # ToDo: handle in better way
+        time.sleep(10)
+
+        # Finish threads and process by sending None to Queues
+        for q in queues:
+            q.put(None)
+
+        for t in threads:
+            t.join()
+
+        # Wait max 20s to get panorama with keypoints
+        pano_with_keypoints, transforms = None, None
+        secs = 0
+        while pano_with_keypoints is None and secs < 20:
+            while not pano_queue.empty():
+                item = pano_queue.get()
+                if item is not None and isinstance(item[0], CVImageWithKeypoints):
+                    pano_with_keypoints, transforms = item
+            time.sleep(2)
+            secs += 2
+
+    except BaseException as exp:
+        print(exp)
+        return 1
+
+    return out_imgs, pano_with_keypoints, transforms
+
+
+def scan_stitch_detect(cam: CamEzviz, positions: list[(np.float32, np.float32)],
+                       name: typing.Union[str, None] = None, path: os.PathLike[any] = None,
+                       undistort = True, stitcher: MyStitcher = None, detected_queue: queue.Queue = None):
+    """
+    Take scan of the scene. Camera rotates and takes multiple pictures.
+
+    :param name: Name of the images to be taken. If None, images are not saved.
+    :param path: Path to save the images
+    :param undistort: Whether to undistort images
+    :return: arr[cv.Mat] images
+    """
+
+    queues, threads, out_imgs, pano_queue = set_up_threads_and_queues(undistort, stitcher, detected_queue)
+    img_queue = queues[0]
+
+    if path is None:
+        path = cam.img_save_dir
+
+    if name:
+        img_path_name = os.path.join(path, name)
+    else:
+        img_path_name = None
+
     try:
         for i, pos in enumerate(positions):
             # Vertical movement to given coordinate is not supported.
@@ -184,29 +244,23 @@ def scan_stitch_detect(cam: CamEzviz, positions: list[(np.float32, np.float32)],
         # Return camera to initial position
         cam.camera.move_coordinates(0.5, y_axis=0.0)
 
-        # Finish thread and process by sending None to Queues
-        img_queue.put(None)
+        # Finish threads and process by sending None to Queues
+        for q in queues:
+            q.put(None)
 
-        if undistort:
-            undistorted_queue.put(None)
-            undistort_thread.join()
+        for t in threads:
+            t.join()
 
-        if stitcher is not None:
-            stitching_queue.put(None)
-            stitch_thread.join()
+        # Wait max 20s to get panorama with keypoints
+        pano_with_keypoints, transforms = None, None
+        secs = 0
+        while pano_with_keypoints is None and secs < 20:
             while not pano_queue.empty():
                 item = pano_queue.get()
-                if pano_queue.empty():
+                if item is not None and isinstance(item[0], CVImageWithKeypoints):
                     pano_with_keypoints, transforms = item
-                    break
-        else:
-            pano_with_keypoints, transforms = None
-
-        if detected_queue is not None:
-            detection_queue.put(None)
-            detection_process.join()
-
-        queue_management_thread.join()
+            time.sleep(2)
+            secs += 2
 
     except BaseException as exp:
         print(exp)
@@ -246,12 +300,9 @@ if __name__ == "__main__":
         imgs, img_names = image_manipulation.load_images(args.img)
         imgs = preprocess_images(imgs)
 
-        # Detect cars in images
-        for idx, img in enumerate(imgs):
-            detected_cars[idx] = []
-            t = threading.Thread(target=detect_cars_in_image_thread, args=(img.copy(), idx, detected_queue))
-            threads.append(t)
-            t.start()
+        imgs, pano_with_keypoints, pano_transforms = stitch_detect(imgs, undistort=False,
+                                                                        stitcher=my_stitcher,
+                                                                        detected_queue=detected_queue)
     else:       # Perform detection on a new camera scan
         # Load environment variables
         EZVIZ_USERNAME = os.getenv("EZVIZ_USERNAME")
@@ -263,7 +314,7 @@ if __name__ == "__main__":
                        show_video=True, use_multiprocessing=False)
         print("Starting camera scan.")
         imgs, pano_with_keypoints, pano_transforms = scan_stitch_detect(cam, positions=[(0.5, 0), (0.4, 0), (0.62, 0)], # (0.5, 6)],
-                                                                        name="night_test_4", undistort=True,
+                                                                        name="night_demo_1", undistort=True,
                                                                         stitcher=my_stitcher,
                                                                         detected_queue=detected_queue)
         cam.close()
@@ -279,7 +330,7 @@ if __name__ == "__main__":
     print(f"Alignement Time: {time.perf_counter() - t_start}")
 
     parking_slots = []
-    with open("./parking_slots.json", "r") as f:
+    with open("./stitching/parking_slots.json", "r") as f:
         json_data = json.load(f)
     for d in json_data:
         #cv2.polylines(parkslots, [np.int32([d["points"]])], True, (0, 0, 255), 5)
@@ -314,7 +365,7 @@ if __name__ == "__main__":
     cv2.addWeighted(parking_slots_pano, alpha, aligned_pano, 1 - alpha, 0, aligned_pano)
     print("Free parking slots detection time: ", time.perf_counter() - t_start)
 
-    with open("./pano_mask.json", "r") as f:
+    with open("./stitching/pano_mask.json", "r") as f:
         json_data = json.load(f)
         mask_points = json_data[0]["points"]
 

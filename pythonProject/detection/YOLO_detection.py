@@ -7,7 +7,6 @@ Script for YOLO object detection
 
 import argparse
 import multiprocessing
-import time
 from dataclasses import dataclass
 
 import cv2
@@ -20,7 +19,7 @@ from lxml.etree import SerialisationError
 from ultralytics import YOLO
 
 from pythonProject.camera.fps import FPS
-from pythonProject import image_manipulation
+from pythonProject.helpers import image_manipulation
 
 
 @dataclass

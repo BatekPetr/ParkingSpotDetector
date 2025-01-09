@@ -8,13 +8,10 @@ Use this script for lens undistortion.
 '''
 
 import argparse
-import glob
-import sys
-import typing
 
 import cv2
 
-from pythonProject import image_manipulation
+from pythonProject.helpers import image_manipulation
 from pythonProject.camera.camera_calibration import CamIntrinsics
 
 
