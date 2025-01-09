@@ -252,7 +252,7 @@ if __name__ == "__main__":
             t = threading.Thread(target=detect_cars_in_image_thread, args=(img.copy(), idx, detected_queue))
             threads.append(t)
             t.start()
-    else:
+    else:       # Perform detection on a new camera scan
         # Load environment variables
         EZVIZ_USERNAME = os.getenv("EZVIZ_USERNAME")
         EZVIZ_PASSWORD = os.getenv("EZVIZ_PASSWORD")
