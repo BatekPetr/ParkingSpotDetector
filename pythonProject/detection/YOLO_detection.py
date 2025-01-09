@@ -6,6 +6,8 @@ Script for YOLO object detection
 '''
 
 import argparse
+import multiprocessing
+import time
 from dataclasses import dataclass
 
 import cv2
@@ -13,10 +15,11 @@ import os
 
 import imutils
 import numpy as np
+from lxml.etree import SerialisationError
 
 from ultralytics import YOLO
 
-from pythonProject.detection.fps import FPS
+from pythonProject.camera.fps import FPS
 from pythonProject import image_manipulation
 
 
@@ -31,8 +34,12 @@ class Detection:
 
 class YOLODetector:
 
-    def __init__(self, path_to_yolo_weights: str):
+    def __init__(self, path_to_yolo_weights: str, use_multiprocessing=False):
         self.model = YOLO(path_to_yolo_weights)
+
+        self.use_multiprocessing = use_multiprocessing
+        if use_multiprocessing:
+            self.img_pipe, self.detections_pipe = multiprocessing.Pipe()
 
 
     def detect_in_image(self, image: np.ndarray, confidence=0.1):
@@ -68,28 +75,64 @@ class YOLODetector:
         for image, name in zip(images, names):
             detections = self.detect_in_image(image, confidence=0.1)
 
-            for detection in detections:
-                # get the respective colour
-                colour = self.get_colors(detection.cls_id)
+            self.draw_detections(image, detections)
 
-                # draw the rectangle
-                cv2.rectangle(image, detection.bbox[0], detection.bbox[1], colour, 2)
-                cv2.circle(image, detection.center, 5, (0, 0, 255), -1)
-
-                # put the class name and confidence on the image
-                cv2.putText(image, f'{detection.cls_name} {detection.confidence:.2f}', detection.bbox[0],
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, colour, 2)
-
-                # show the image
+            # show the image
             cv2.imshow('Yolo detection', image)
             if name:
                 cv2.imwrite(name[:-4] + "_det" + name[-4:], image)
             cv2.waitKey(0)
             cv2.destroyAllWindows()
 
+    def detection_process(self, pipe: multiprocessing.Pipe):
+        while True:
+            if pipe.poll():
+                # Get the serialized image from the queue
+                command = pipe.recv()
+                if isinstance(command, bytes):
+                    encoded_image = command
+                    # Deserialize the image using cv2.imdecode
+                    nparr = np.frombuffer(encoded_image, np.uint8)  # Convert bytes back to NumPy array
+                    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)  # Decode the image
+
+                    detections = self.detect_in_image(img)
+                    img = self.draw_detections(img, detections)
+
+                    # Serialize and send detection results
+                    success, encoded_image = cv2.imencode('.jpg', img)
+                    # send image for detection into separate process
+                    if success:
+                        pipe.send(encoded_image.tobytes())  # Put the byte array into the pipe
+                    else:
+                        raise SerialisationError
+
+                elif isinstance(command, str):
+                    if "stop" == command:
+                        break
+
+    def draw_detections(self, image, detections):
+        for detection in detections:
+            # get the respective colour
+            colour = self.get_colors(detection.cls_id)
+
+            # draw the rectangle
+            cv2.rectangle(image, np.int32(detection.bbox[0]), np.int32(detection.bbox[1]), colour, 2)
+
+            cv2.circle(image, np.int32(detection.center), 5, (0, 0, 255), -1)
+
+            # put the class name and confidence on the image
+            cv2.putText(image, f'{detection.cls_name} {detection.confidence:.2f}', np.int32(detection.bbox[0]),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, colour, 2)
+        return image
+
     def detect_in_video(self, cam, video_name: str = None):
 
+        if self.use_multiprocessing:
+            p = multiprocessing.Process(target=self.detection_process, args=(self.detections_pipe,))
+            p.start()
+
         image = cam.take_img()
+
         if video_name:
             # Define the codec and create a VideoWriter object
             fourcc = cv2.VideoWriter_fourcc(*'XVID')  # You can use 'XVID', 'MJPG', 'MP4V', etc.
@@ -98,71 +141,50 @@ class YOLODetector:
 
         fps = FPS().start()
 
-
         while cam.is_opened():
-            results = self.model(image)
+            if self.use_multiprocessing:
+                success, encoded_image = cv2.imencode('.jpg', image)
+                # send image for detection into separate process
+                if success:
+                    self.img_pipe.send(encoded_image.tobytes())  # Put the byte array into the pipe
+                else:
+                    raise SerialisationError
 
-            for result in results:
-                # get the classes names
-                classes_names = result.names
+                # Get the serialized image from the queue
+                from_video_process = self.img_pipe.recv()
+                if isinstance(from_video_process, bytes):
+                    encoded_image = from_video_process
 
-                # iterate over each box
-                for box in result.boxes:
-                    # check if confidence is greater than 40 percent
-                    if box.conf[0] > 0.1:
-                        # get coordinates
-                        [x1, y1, x2, y2] = box.xyxy[0]
-                        # convert to int
-                        x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
-
-                        # get the class
-                        cls = int(box.cls[0])
-
-                        # get the class name
-                        class_name = classes_names[cls]
-
-                        # get the respective colour
-                        colour = self.get_colors(cls)
-
-                        # draw the rectangle
-                        cv2.rectangle(image, (x1, y1), (x2, y2), colour, 2)
-
-                        # put the class name and confidence on the image
-                        cv2.putText(image, f'{classes_names[int(box.cls[0])]} {box.conf[0]:.2f}', (x1, y1),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 1, colour, 2)
-
-            # show the image
-            image = imutils.resize(image, 1024)
-            cv2.imshow('frame', image)
-            out.write(image)
+                    # Deserialize the image using cv2.imdecode
+                    nparr = np.frombuffer(encoded_image, np.uint8)  # Convert bytes back to NumPy array
+                    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)  # Decode the image
+            else:
+                detections = self.detect_in_image(image)
+                self.draw_detections(image, detections)
 
             fps.update()
+            # show the image
+            image = imutils.resize(image, 1024)
+            fps.add_to_image(image)
+
+            cv2.imshow('frame', image)
+            cv2.waitKey(1)
+
+            if isinstance(out, cv2.VideoWriter):
+                out.write(image)
+
             image = cam.take_img()
 
-            # Display FPS on the video frame
-            fps_text = f"FPS: {fps.fps():.2f}"
-
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            font_scale = 1
-            font_color = (0, 0, 0)  # Černý text
-            thickness = 2
-            (text_width, text_height), _ = cv2.getTextSize(fps_text, font, font_scale, thickness)
-            position = (10, 30)
-            background_color = (255, 255, 255)
-
-            # Vykreslete obdélník jako pozadí
-            cv2.rectangle(image,
-                          (position[0] - 10, position[1] - text_height - 10),
-                          (position[0] + text_width + 10, position[1] + 10),
-                          background_color,
-                          -1)
-            cv2.putText(image, fps_text, position, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_color, thickness)
 
         cv2.destroyWindow('frame')
         # Stop FPS tracking
         fps.stop()
         out.release()
 
+        if self.use_multiprocessing:
+            self.img_pipe.send("stop")
+            self.img_pipe.close()
+            p.join()
 
     # Function to get class colors
     def get_colors(self, cls_num):
@@ -188,7 +210,7 @@ if __name__=="__main__":
 
     args = parser.parse_args()
 
-    model = YOLODetector(os.path.join("./NN_models", "CarDetector_YOLOv11s_1024.pt"))
+    model = YOLODetector(os.path.join("./NN_models", "CarDetector_YOLOv11s_1024.pt"), use_multiprocessing=False)
     if args.img:    # Perform detection on images
         imgs, img_names = image_manipulation.load_images(args.img)
         model.detect_in_images(imgs, img_names)
@@ -199,7 +221,8 @@ if __name__=="__main__":
 
         RTSP_URL = os.getenv("RTSP_URL")
         from pythonProject.camera.camera_ezviz import CamEzviz
-        cam = CamEzviz(RTSP_URL, EZVIZ_USERNAME, EZVIZ_PASSWORD, img_save_dir="../../imgs/parking_dataset", show_video=False)
+        cam = CamEzviz(RTSP_URL, EZVIZ_USERNAME, EZVIZ_PASSWORD, img_save_dir="../../imgs/parking_dataset",
+                       show_video=False)
 
         import threading
         t = threading.Thread(target=model.detect_in_video, args=(cam, "LiveDetection.avi"))

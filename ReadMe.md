@@ -10,6 +10,7 @@ whole area.
   * https://www.ezviz.com/product/c6n/9046
   * note: in order to be able to read video stream via RTSP protocol an older firmware has to be used.
   Downgrade the camera firmware following the tutorial from: https://ipcamtalk.com/threads/ezviz-disables-rtps-for-its-ip-cameras-here-is-the-fix.69927/
+  * note: it is a TERRIBLE choice for project like this, see [Conclusion](#conclusion)
 * PyEzviz:
   * https://pypi.org/project/pyezviz/
   * https://github.com/baqs/pyEzviz/
@@ -17,13 +18,13 @@ whole area.
 * OpenCV 4.10.0
 * Python 3.12
 
-## Image processing pipeline
+## Project creation description
 0) Find Camera intrinsic parameters for image rectification.
    * When pictures are not rectified, final panoramas are distorted and does not look pretty.
    ![distorted-panorama](./imgs/distorted_pano.jpg)
    * Stitching of undistorted images looks better
    ![undistorted_panorama](./imgs/undistorted_pano.jpg)
-1) Create panoramatic picture
+1) Create panoramic picture
    * Take several pictures while rotating the camera.
    * Undistort images.
    * Original idea was to use OpenCV Sticher class to perform stitching. 
@@ -39,15 +40,14 @@ whole area.
      of the panorama appear larger than those in the center. 
      ![Pano Spherical Warp](./imgs/template_pano_spherical.jpg)
      *Fig: Panorama with Spherical Warp
-     
      As can be seen on [Pano Spherical Warp](./imgs/template_pano_spherical.jpg) warping corrects Edge stretching 
      however images are not properly stitched together. Another disadvantage of warping is that it does not 
      preserve straight lines. Having straight lines is beneficial in rectangular parking slots selection. 
      Therefore, no warping prior to stitching was performed. Warping can be applied to final panorama to slightly 
      improve the visual effect.
-   * SIFT and ORB feature detection and matching was implemented (using OpenCV functions). SIFT proved to be more 
-   accurate and robust in cost of longer processing time. The cost is acceptable by the usecase, so SIFT is used primarily.
-   * ToDo: Image blending was not yet implemented as it is not necessary for the usecase.
+     * SIFT and ORB feature detection and matching was implemented (using OpenCV functions). SIFT proved to be more 
+     accurate and robust in cost of longer processing time. The cost is acceptable by the usecase, so SIFT is used primarily.
+     * ToDo: Image blending was not yet implemented as it is not necessary for the usecase.
 2) Use Neural Network to detect parked vehicles.
    1) The first "naive" approach was to use existing pre-trained NN models. 
       * TensorFlow implementation of model [EfficientDet](https://www.kaggle.com/models/tensorflow/efficientdet/tensorFlow2/d7) 
@@ -57,7 +57,7 @@ whole area.
    2) This experience lead the project to the task of training a custom NN. This task required a small research to be performed 
    in order to choose suitable tools and NNs architecture.
 3) Research about NN image detections
-   * Before choosing one of the options research about the topic of car detections was performed.
+   * Before choosing one of the options, research about the topic of car detections was performed.
    * These insights were acknowledged:
      * The NNs trained on general datasets like [COCO](https://cocodataset.org/#home) are too general for the project's specific use-case.
      * [Roboflow](https://roboflow.com/) platform was found. It contains many NN models and image datasets from various use-cases.
@@ -68,7 +68,7 @@ whole area.
    whereas older version such as YOLOv8 can be found on [Github](https://github.com/ultralytics/ultralytics/blob/main/docs/en/models/yolov8.md).
      * [Google Colab](https://colab.research.google.com/) was used for computing extensive tasks as it offers a use of GPU resources.
      * [Google Kaggle](https://www.kaggle.com) similar platform as Colab for use of GPUs for computing.
-     * There are to types of NNs for object detection:
+     * There are two types of NNs for object detection:
        * Multipass NNs - detection and labelling happens in 2 or more passes through NN. Due to this property, detection is usually longer but can be more precise.
        * Singlepass NNs or Single Shot Detectors (SSD) - detection and labelling happens during a single pass through NN. 
        This architecture results in faster detection for the cost of worse accuracy.
@@ -86,14 +86,16 @@ whole area.
    [Roboflow](https://app.roboflow.com/testing-ehxhf/cardetector-kkdtp/6)
    * Big 👏👏👏 THANKS 👏👏👏 goes here to my beloved wife, who helped with manual labeling and verification!
 5) Finaly YOLOv11s model was trained on Kaggle and/or Colab
-6) As can be seen on video: ![Live Video](./imgs/LiveDetection.gif)
+6) As can be seen on gif: ![Live Video](./imgs/LiveDetection.gif)
 Approx. FPS of 1 and lags in video stream are not superb. But since the intention is to take images and compose panorama,
 it is good enough for the usecase. Detection at night: ![Night Live Video](./imgs/LiveDetectionNight.gif)
 
-Note: There as false and incorrect detections present in GIFs. It is expected as the small NN model was used. 
+Note: There are false and incorrect detections present in GIFs. It is expected as the small NN model was used. 
 Accuracy improvement would be possible with the use of larger model for the cost of longer inference time.
 Also, it shall be noted, that training set was heavily imbalanced with respect of Car-Truck-Person numbers.
-7) At this point two main parts: Image Stiching and Car NN Detector were ready. The time has come to join two parts 
+
+ToDo: Add some statistics (mAP, IoU, Precision, Recall F1 Score)
+7) At this point two main parts: Image Stitching and Car NN Detector were ready. The time has come to join two parts 
 together. In order to be able to detect available parking spaces, they need to be defined first. In order to do this, 
 a one "template" panorama was created. This panorama serves as a baseline and all new images and panoramas will be 
 transformed into its coordinates. Available parking spaces were selected with the help of Ultralytics 
@@ -107,4 +109,39 @@ to select even places further away with expectation of worse detection accuracy.
 8) Final result after taking new, actual images, stitching them and transforming stitched panorama into 
 parking slot "template" coordinates with outlined occupied and free parking places looks like this:
 ![Detections in Panorama](./imgs/DetectionsInPanorama.jpg)
-9) 
+9) Optimization. <br> 
+The first project result was achieved, but it took a long time to get final free space location.
+Camera has to be rotated for taking pictures, features have to be detected and matched for stitching, 
+NN detections must be performed. All of this can be parallelized to get result faster. When it comes to parallelization 
+in python, there are two main options: multithreading and multiprocessing. Due to 
+[Python GIL](https://realpython.com/python-gil/) multithreading is not a big improvement for CPU bound tasks 
+(keypoints detection and matching, NN detection) since threads run "in parallel" on one CPU core waiting for each other.
+On the other hand, Multiprocessing is a way to run CPU bound tasks in parallel among multiple CPU cores. 
+Data synchronization between processes can be done using Multiprocessing Pipe, Queue or Locks 
+(and there are more ways ...). Therefore, a combination of multiple processes and thread needed to be chosen and 
+designed to use CPU resources effectively and achieve faster results. <br>
+The slowest task is rotating the camera, there is a lot of CPU inactivity during the camera motion. 
+Keypoints detection and matching and NN detections compete for CPU resources on the other side. This leads to 
+a design choice for using 2 Multiprocessing processes and perform the rest of "parallelization" using 
+Multithreading module. One process performs NN detections and the second one does the rest 
+(camera rotation, keypoints, stitching) using multiple threads. <br>
+ToDo: Add UML sequence diagram <br>
+The optimized code can be found in [StitchAndDetect](./pythonProject/stitching/stitch_and_detect.py) script.
+10) Vision and Deeplearning part came to an end. Of course, there are more possible improvements and code polishing, 
+but the first MVP is done.
+11) Next steps:
+* In order to provide a triggering mechanism to the driver, server part would need to be implemented.
+* Identification (e.g. numbering) of individual parking slots would have to be performed.
+* Project deployment to the server would need to be done
+
+## Conclusion
+* I learned a lot about basic Computer Vision task, Stitching. I believe, that feature detection and matching, 
+camera calibration can be reused in more advanced tasks like VisualSLAM.
+* Exploration and application of NN detectors was also very beneficial. The task opens doors for further Deeplearning 
+tasks such as Segmentation, Depth restoration, Tracking, etc.
+* EZVIZ PTZ camera is a TERRIBLE choice for this task. 
+  * PanTiltZoom control can be done only through EZVIZ cloud, 
+  which introduces large delays, which are inconvenient for control. The camera was chosen only from the reason, 
+  that I had it in my drawer from one of the previous projects.
+  * To get RTSP stream, you have to downgrade firmware
+  * Some API functions from PyEzviz library don't even work (e.g. Moving camera to target Y position.)

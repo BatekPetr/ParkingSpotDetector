@@ -1,7 +1,13 @@
+import queue
+
 import cv2
 import datetime
 import os
+
+import numpy as np
+from lxml.etree import SerialisationError
 from pyezviz import EzvizClient, EzvizCamera
+import multiprocessing
 import threading
 import time
 import tkinter as tk
@@ -10,12 +16,18 @@ from tkinter import DoubleVar
 
 from pythonProject.camera.camera_calibration import CamIntrinsics
 from pythonProject.camera.camera_rtsp import VideoCapture
+from pythonProject.stitching.my_stitching import MyStitcher
 
 
-class CamEzviz():
+class DeviceError(Exception):
+    """Custom exception for device-related errors."""
+    pass
+
+
+class CamEzviz:
 
     def __init__(self, rtsp_url, ezviz_username, ezviz_password, img_save_dir=None, img_save_name="C6N_IMG",
-                 show_video=True):
+                 show_video=True, use_multiprocessing=False):
 
         # Ezviz API client
         self.client = EzvizClient(ezviz_username, ezviz_password, "eu")
@@ -24,8 +36,7 @@ class CamEzviz():
         self.camera.move_coordinates(x_axis=0.5, y_axis=0.0)
         print(self.camera.status())
 
-        # RTSP Video stream
-        self.cap = VideoCapture(rtsp_url, show_video)
+
         # Camera parameters
         self.instrinsics = CamIntrinsics(os.path.join(os.path.dirname(__file__), "Ezviz_C6N"))
 
@@ -44,6 +55,45 @@ class CamEzviz():
 
         self.img_save_dir = img_save_dir
         self.img_save_name = img_save_name
+
+        self.use_multiprocessing = use_multiprocessing
+        if use_multiprocessing:
+            self.queue = multiprocessing.Queue()
+            self.command_pipe, process_pipe = multiprocessing.Pipe()
+            self.p = multiprocessing.Process(target=self.video_capture_process, args=(rtsp_url, show_video, process_pipe))
+            self.p.start()
+        else:
+            # RTSP Video stream
+            self.cap = VideoCapture(rtsp_url, show_video)
+
+    def video_capture_process(self, rtsp_url, show_video, process_pipe):
+        # RTSP Video stream
+        cap = VideoCapture(rtsp_url, show_video)
+
+        # Wait until VideoCapture is opened
+        while not cap.is_opened():
+            time.sleep(0.1)
+
+        # Manage Video Capture process
+        while True:
+            if process_pipe.poll():
+                command = process_pipe.recv()
+                if "read" == command:
+                    img = cap.read()
+                    if img is None:
+                        self.queue.put(ValueError("Image is empty or could not be loaded. Camera is not ready."))
+                    else:
+                        # Serialize the image using cv2.imencode
+                        success, encoded_image = cv2.imencode('.jpg', img)
+                        if success:
+                            self.queue.put(encoded_image.tobytes())  # Put the byte array into the queue
+                        else:
+                            raise SerialisationError
+                elif "stop" == command:
+                    cap.release()
+                    break
+
+        process_pipe.close()
 
     def control(self):
         # Create a window
@@ -90,80 +140,30 @@ class CamEzviz():
         root.bind("<Escape>", exit)
         root.mainloop()
 
-
-    def scan(self, name: typing.Union[str, None] = None, path: os.PathLike[any] = None,
-             undistort = True):
-        """
-        Take scan of the scene. Camera rotates and takes multiple pictures.
-
-        :param name: Name of the images to be taken. If None, images are not saved.
-        :param path: Path to save the images
-        :param undistort: Whether to undistort images
-        :return: arr[cv.Mat] images
-        """
-        if path is None:
-            path = self.img_save_dir
-
-        out_imgs = []
-        if name:
-            img_path_name = os.path.join(path, name)
-        else:
-            img_path_name = None
-
-        try:
-            threads = []
-            self.camera.move_coordinates(0.4 , y_axis=0.0)
-            time.sleep(10)
-            if undistort:
-                self.take_img(img_path_name, "_1.jpg", out_imgs, threads)
-            else:
-                out_imgs.append(self.take_img(img_path_name, "_1.jpg"))
-
-            self.camera.move_coordinates(0.5, y_axis=0.0)
-            time.sleep(10)
-            if undistort:
-                self.take_img(img_path_name, "_2.jpg", out_imgs, threads)
-            else:
-                out_imgs.append(self.take_img(img_path_name, "_2.jpg"))
-
-            for i in range(6):
-                self.camera.move("up")
-                time.sleep(2)
-            time.sleep(5)
-            if undistort:
-                self.take_img(img_path_name, "_3.jpg", out_imgs, threads)
-            else:
-                out_imgs.append(self.take_img(img_path_name, "_3.jpg"))
-
-            for i in range(6):
-                self.camera.move("down")
-                time.sleep(2)
-
-            self.camera.move_coordinates(0.6, y_axis=0.0)
-            time.sleep(10)
-            if undistort:
-                self.take_img(img_path_name, "_4.jpg", out_imgs, threads)
-            else:
-                out_imgs.append(self.take_img(img_path_name, "_4.jpg"))
-
-            self.camera.move_coordinates(0.5, y_axis=0.0)
-
-            for thread in threads:
-                thread.join()
-
-        except BaseException as exp:
-            print(exp)
-            return 1
-
-        return out_imgs
+    def undistortion_thread(self, q_in: queue.Queue, q_out: queue.Queue):
+        while True:
+            img = q_in.get()
+            if img is None:
+                break
+            rect_img = self.undistort(img)
+            q_out.put(rect_img)
 
     def is_opened(self):
-        return self.cap.is_opened()
+        if self.use_multiprocessing:
+            return self.p.is_alive()
+        else:
+            return self.cap.is_opened()
 
 
     def close(self):
         self.client.close_session()
-        self.cap.release()
+
+        if self.use_multiprocessing:
+            self.command_pipe.send("stop")
+            self.command_pipe.close()
+            self.p.join()
+        else:
+            self.cap.release()
 
     def undistort(self, in_images, #: typing.Union[cv2.typing.MatLike| list[cv2.typing.MatLike]],
                   out_images: list = None, idx: int = None):
@@ -208,18 +208,40 @@ class CamEzviz():
         if suffix == "":
             suffix = ".jpg"
 
-        img = self.cap.read()
+        img = None
+        start_t = time.perf_counter()
+        while img is None:
+            if self.use_multiprocessing:
+                if self.command_pipe.closed:
+                    break
+
+                self.command_pipe.send("read")
+
+                # Get the serialized image from the queue
+                from_video_process = self.queue.get()
+                if isinstance(from_video_process, bytes):
+                    encoded_image = from_video_process
+
+                    # Deserialize the image using cv2.imdecode
+                    nparr = np.frombuffer(encoded_image, np.uint8)  # Convert bytes back to NumPy array
+                    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)  # Decode the image
+            else:
+                if self.cap.is_opened():
+                    img = self.cap.read()
+                else:
+                    break
+
+            # Raise device error if cam image is unavailable for 10 s
+            if time.perf_counter() - start_t > 10:
+                raise DeviceError
 
         if isinstance(out_imgs, list) and isinstance(threads, list):
             out_imgs.append(None)
             threads.append(threading.Thread(target=self.undistort, args=(img, out_imgs, len(threads))))
             threads[len(threads) - 1].start()
 
-        #cv2.imshow("Snapshot", img)
         if img_name:
             cv2.imwrite(img_name + suffix, img)
-        #cv2.waitKey(1000)
-        #cv2.destroyWindow("Snapshot")
 
         return img
 
@@ -233,18 +255,10 @@ if __name__=="__main__":
 
     RTSP_URL = os.getenv("RTSP_URL")
 
-    cam = CamEzviz(RTSP_URL, EZVIZ_USERNAME, EZVIZ_PASSWORD, img_save_dir=IMG_DIR)
+    # No significant improvement when multiprocessing used here
+    cam = CamEzviz(RTSP_URL, EZVIZ_USERNAME, EZVIZ_PASSWORD, img_save_dir=IMG_DIR, use_multiprocessing=True)
 
-    ## Perform camera scan, rectify and save images
-    # t1 = time.time_ns()
-    # images = cam.scan("test", undistort=False)
-    # rectified_images = cam.undistort(images)
-    # for i in range(len(rectified_images)):
-    #     cv2.imwrite("rectified_" + str(i+1) + ".jpg", rectified_images[i])
-    #
-    # print("time: " + str(1e-9 * (time.time_ns() - t1)))
-
-    ## Control camera using keyboard
+    # Control camera using keyboard
     cam.control()
 
     cam.close()
