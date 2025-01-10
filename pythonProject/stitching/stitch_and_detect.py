@@ -28,22 +28,12 @@ from pythonProject.stitching.my_stitching import (preprocess_images, find_homogr
                                                   list_to_keypoints, CVImageWithKeypoints)
 
 
-def detect_cars_in_image_thread(img, idx = None, queue = None):
-    detector = YOLODetector(os.path.join("./NN_models", "YOLOv11x_MyDataset_imgsz1024.pt"))
-    detections = detector.detect_in_image(img, 0.1)
-    detected_cars = []
-    for detection in detections:
-        if detection.cls_name == "car" or detection.cls_name == "truck":
-            # detection.bbox = np.squeeze(cv2.perspectiveTransform(np.array([detection.bbox]), th))
-            # detection.center = np.squeeze(cv2.perspectiveTransform(np.array([[detection.center]]), th))
-            detected_cars.append(detection.center)
-
-    if queue:
-        queue.put( (idx, detected_cars) )
-
-    return detected_cars
-
 def detect_cars_in_image_process(q_in: queue.Queue, q_out: queue.Queue):
+    """Process for NN detection of cars in images.
+
+    :param q_in: Queue for input images
+    :param q_out: Queue for output tuples of (image_index, list[detected cars box centers]).
+    """
     detector = YOLODetector(os.path.join("./NN_models", "YOLOv11x_MyDataset_imgsz1024.pt"))
     idx = 0
     while True:
@@ -68,6 +58,13 @@ def detect_cars_in_image_process(q_in: queue.Queue, q_out: queue.Queue):
 
 
 def stitching_thread(q_in: queue.Queue, q_out: queue.Queue, stitcher: MyStitcher):
+    """Thread for stitching images into panorama.
+
+    :param q_in: Queue for input images.
+    :param q_out: Queue for output of original images and final panorama with transforms
+    :param stitcher: Instance of Stitcher object
+    """
+
     ref_img = q_in.get()
     q_out.put(ref_img)
     transforms = None
@@ -82,7 +79,18 @@ def stitching_thread(q_in: queue.Queue, q_out: queue.Queue, stitcher: MyStitcher
 
     print("Quitting stitching_thread.")
 
-def set_up_threads_and_queues(undistort = None, stitcher = None, detected_queue: queue.Queue = None):
+def set_up_threads_and_queues(undistort = True, stitcher = None, detected_queue: queue.Queue = None):
+    """Sets up threads, processes and queues.
+
+    :param undistort: Boolean indicating, whether to perform image undistorion
+    :param stitcher: Instance of Stitcher object
+    :param detected_queue: OUTput queue reference for cars detections
+    :return: queues: list of created queues
+    :return: threads: list of created threads and processes
+    :return: out_imgs: list of original images
+    :return: pano_queue: reference to OUTput queue of stitching thread
+    """
+
     # Define Queues for process connections
     img_queue = queue.Queue()
     undistorted_queue: queue.Queue = None
@@ -125,6 +133,17 @@ def set_up_threads_and_queues(undistort = None, stitcher = None, detected_queue:
         queues += [detection_queue]
 
     def manage_queues(img_queue, undistorted_queue, stitching_queue, detection_queue, out_imgs):
+        """Manages queues between threads and processes. Selects undistorted images as input for stitching and detection
+        if undistorted queue is provided. If not, original images are used.
+
+        Performs image serialization for detection process.
+
+        :param img_queue: queue with original images
+        :param undistorted_queue: OPTIONAL queue with undistorted images
+        :param stitching_queue: input queue for stitching
+        :param detection_queue: input queue for detection
+        :param out_imgs: output list of original images
+        """
         if undistorted_queue is not None:
             in_queue = undistorted_queue
         else:
@@ -159,9 +178,22 @@ def set_up_threads_and_queues(undistort = None, stitcher = None, detected_queue:
     return queues, threads, out_imgs, pano_queue
 
 
-def stitch_detect(imgs: list[np.ndarray], undistort = False, stitcher: MyStitcher = None,
+def stitch_detect(imgs: list[np.ndarray], stitcher: MyStitcher = None,
                   detected_queue: queue.Queue = None):
+    """
+    Stitches images into panorama and detects cars in individual images.
 
+    Multithreaded and multiprocess implementation for performance improvement.
+
+    :param imgs: List of input UNDISTORTED images.
+    :param stitcher: Instance of Stitcher class
+    :param detected_queue: reference to queue for OUTput of car detections
+    :return: arr[cv.Mat] original images
+    :return: CVImageWithKeypoints panorama with keypoints
+    :return: arr[np.ndarray] transformations of individual images to the panorama
+    """
+
+    undistort = False
     queues, threads, out_imgs, pano_queue = set_up_threads_and_queues(undistort, stitcher, detected_queue)
     img_queue = queues[0]
 
@@ -200,14 +232,23 @@ def stitch_detect(imgs: list[np.ndarray], undistort = False, stitcher: MyStitche
 
 def scan_stitch_detect(cam: CamEzviz, positions: list[(np.float32, np.float32)],
                        name: typing.Union[str, None] = None, path: os.PathLike[any] = None,
-                       undistort = True, stitcher: MyStitcher = None, detected_queue: queue.Queue = None):
+                       undistort = True, stitcher: MyStitcher = None, detected_queue: queue.Queue = None) -> (
+        tuple)[list[np.ndarray], CVImageWithKeypoints, list[np.ndarray]]:
     """
-    Take scan of the scene. Camera rotates and takes multiple pictures.
+    Takes scan of the scene, stitches images into panorama and detects cars in individual images.
 
+    Multithreaded and multiprocess implementation for performance improvement.
+
+    :param cam: Instance of camera with PTZ control
+    :param positions: Positions of camera for taking images
     :param name: Name of the images to be taken. If None, images are not saved.
     :param path: Path to save the images
     :param undistort: Whether to undistort images
-    :return: arr[cv.Mat] images
+    :param stitcher: Instance of Stitcher class
+    :param detected_queue: reference to queue for OUTput of car detections
+    :return: arr[cv.Mat] original images
+    :return: CVImageWithKeypoints panorama with keypoints
+    :return: arr[np.ndarray] transformations of individual images to the panorama
     """
 
     queues, threads, out_imgs, pano_queue = set_up_threads_and_queues(undistort, stitcher, detected_queue)
@@ -296,13 +337,15 @@ if __name__ == "__main__":
     detected_queue = multiprocessing.Queue()
 
     if args.img:    # Perform detection on images
-        print("Loading images from disk.")
+        print("Loading images from disk ...")
         imgs, img_names = image_manipulation.load_images(args.img)
+
+        print("Preprocessing images ...")
         imgs = preprocess_images(imgs)
 
-        imgs, pano_with_keypoints, pano_transforms = stitch_detect(imgs, undistort=False,
-                                                                        stitcher=my_stitcher,
-                                                                        detected_queue=detected_queue)
+        print("Stitching and detection ...")
+        imgs, pano_with_keypoints, pano_transforms = stitch_detect(imgs, stitcher=my_stitcher,
+                                                                   detected_queue=detected_queue)
     else:       # Perform detection on a new camera scan
         # Load environment variables
         EZVIZ_USERNAME = os.getenv("EZVIZ_USERNAME")
@@ -312,9 +355,9 @@ if __name__ == "__main__":
 
         cam = CamEzviz(RTSP_URL, EZVIZ_USERNAME, EZVIZ_PASSWORD, img_save_dir="../imgs/testing",
                        show_video=True, use_multiprocessing=False)
-        print("Starting camera scan.")
+        print("Camera scan, stitching and detection ...")
         imgs, pano_with_keypoints, pano_transforms = scan_stitch_detect(cam, positions=[(0.5, 0), (0.4, 0), (0.62, 0)], # (0.5, 6)],
-                                                                        name="night_demo_1", undistort=True,
+                                                                        name="day_demo_3", undistort=True,
                                                                         stitcher=my_stitcher,
                                                                         detected_queue=detected_queue)
         cam.close()
