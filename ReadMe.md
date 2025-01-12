@@ -5,7 +5,9 @@ when returning home. Parking spaces are available along the street and therefore
 camera has to be rotated and more images have to be taken in order to cover the 
 whole area.
 
-## How to run
+![Detections in Panorama Final](./imgs/DetectionsInPanoramaFinal.jpg)
+
+## How to run demo with images
 1) Clone the repo <br>
     `git clone https://github.com/BatekPetr/ParkingSpotDetector.git`
 2) Create and activate Venv inside `pythonProject` directory: <br>
@@ -23,6 +25,11 @@ whole area.
       `python -m pythonProject.images_stitch_and_detect`
     - optionally specify which scenario to use with `--img` parameter: <br>
       `python -m pythonProject.images_stitch_and_detect --img "../imgs/testing/night_demo_3"`
+
+## How to run with real camera
+This tutorial is not very detailed for now because a user would need a complete setup with a camera.
+Script [cam_stitch_and_detect.py](./pythonProject/cam_stitch_and_detect.py) was prepared to run a live camera scan, 
+stitching and detections. Set-up of environment variables for EZVIZ camera nas user account is necessary.
 
 ## Used HW and SW
 * EZVIZ Camera:
@@ -146,7 +153,9 @@ Multithreading module. One process performs NN detections and the second one doe
 (camera rotation, keypoints, stitching) using multiple threads. <br>
 ToDo: Add UML sequence diagram <br>
 The optimized code can be found in [StitchAndDetect](./pythonProject/stitching/stitch_and_detect.py) script.
-10) Vision and Deeplearning part came to an end. Of course, there are more possible improvements and code polishing, 
+10) Final result can be improved by cropping black image border:
+![Detections in Panorama Final](./imgs/DetectionsInPanoramaFinal.jpg)
+11) Vision and Deeplearning part came to an end. Of course, there are more possible improvements and code polishing, 
 but the first MVP is done.
 11) Next steps:
 * In order to provide a triggering mechanism to the driver, server part would need to be implemented.
