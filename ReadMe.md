@@ -114,12 +114,10 @@ stitching and detections. Set-up of environment variables for EZVIZ camera nas u
 5) Finaly YOLOv11s model was trained on Kaggle and/or Colab
 6) As can be seen on gif: ![Live Video](./imgs/LiveDetection.gif)
 Approx. FPS of 1 and lags in video stream are not superb. But since the intention is to take images and compose panorama,
-it is good enough for the usecase. Detection at night: ![Night Live Video](./imgs/LiveDetectionNight.gif)
-
+it is good enough for the usecase. Detection at night: ![Night Live Video](./imgs/LiveDetectionNight.gif) <br>
 Note: There are false and incorrect detections present in GIFs. It is expected as the small NN model was used. 
 Accuracy improvement would be possible with the use of larger model for the cost of longer inference time.
-Also, it shall be noted, that training set was heavily imbalanced with respect of Car-Truck-Person numbers.
-
+Also, it shall be noted, that training set was heavily imbalanced with respect of Car-Truck-Person numbers. <br>
 ToDo: Add some statistics (mAP, IoU, Precision, Recall F1 Score)
 7) At this point two main parts: Image Stitching and Car NN Detector were ready. The time has come to join two parts 
 together. In order to be able to detect available parking spaces, they need to be defined first. In order to do this, 
