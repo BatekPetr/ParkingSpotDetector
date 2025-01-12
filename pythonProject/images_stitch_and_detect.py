@@ -22,14 +22,14 @@ if __name__ == "__main__":
     if args.img is None:
         # Please choose one of the options below, or specify it as a script argument
         # --------------------------------------------------------------------------
-        args.img = ["../imgs/testing/day_demo_1"]
+        # args.img = ["../imgs/testing/day_demo_1"]
         # args.img = ["../imgs/testing/day_demo_2_0.jpg",
         #             "../imgs/testing/day_demo_2_1.jpg",
         #             "../imgs/testing/day_demo_2_2.jpg"]
         # args.img = ["../imgs/testing/day_demo_3"]
 
         # args.img = ["../imgs/testing/sunny_day_1"]
-        # args.img = ["../imgs/testing/sunny_day_2"]
+        args.img = ["../imgs/testing/sunny_day_2"]
         # args.img = ["../imgs/testing/sunny_day_3"]
 
         # args.img = ["../imgs/testing/night_demo_1"]

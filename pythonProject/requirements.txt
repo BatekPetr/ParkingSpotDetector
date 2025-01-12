@@ -3,7 +3,6 @@ autodistill
 imutils
 lxml
 matplotlib
-opencv-python
 pynput
 pyezviz
 pyqt6
