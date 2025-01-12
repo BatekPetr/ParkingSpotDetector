@@ -6,12 +6,17 @@ camera has to be rotated and more images have to be taken in order to cover the
 whole area.
 
 ## How to run
-1) Clone the repo
-2) Create Venv
+1) Clone the repo <br>
+    `git clone https://github.com/BatekPetr/ParkingSpotDetector.git`
+2) Create and activate Venv inside `pythonProject` directory: <br>
+    `cd ParkingSpotDetector/pythonProject/` <br>
+    `python -m venv venv` <br>
+    `source venv/bin/activate` <br>
 3) Install requirements.txt
-4) Run:
-    - `cd` into `pythonProject` directory: <br>
-      `cd pythonProject`
+    `pip install -r requirements_frozen.txt`
+4) Unzip `parkslots_pano.zip`. This is zipped `.pickle` file containing template panorama and parking slots definition <br>
+    `unzip parkslots_pano.zip parkslots_pano.pickle`
+5) Run:
     - add the `pythonProject` directory to PYTHONPATH because `pythonProject` itself must be importable as a package: <br>
       `export PYTHONPATH=$(pwd)/..`
     - run `images_stitch_and_detect.py` script to perform stitching and detection on supplied demo images: <br>

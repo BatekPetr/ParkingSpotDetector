@@ -1,0 +1,13 @@
+absl-py==2.1.0
+autodistill==0.1.29
+imutils==0.5.4
+lxml==5.3.0
+matplotlib==3.10.0
+opencv-python==4.10.0.84
+pynput==1.7.7
+pyezviz==0.2.2.3
+pyqt6==6.8.0
+roboflow==1.1.50
+supervision==0.25.1
+tensorflow-hub==0.16.1
+ultralytics==8.3.59
