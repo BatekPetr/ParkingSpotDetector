@@ -65,7 +65,7 @@ stitching and detections. Set-up of environment variables for EZVIZ camera nas u
      * Image warping (cylindrical and spherical) was tested to avoid Edge stretching, where objects near the edges 
      of the panorama appear larger than those in the center. 
      ![Pano Spherical Warp](./imgs/template_pano_spherical.jpg)
-     *Fig: Panorama with Spherical Warp
+     *Fig: Panorama with Spherical Warp <br>
      As can be seen on [Pano Spherical Warp](./imgs/template_pano_spherical.jpg) warping corrects Edge stretching 
      however images are not properly stitched together. Another disadvantage of warping is that it does not 
      preserve straight lines. Having straight lines is beneficial in rectangular parking slots selection. 
