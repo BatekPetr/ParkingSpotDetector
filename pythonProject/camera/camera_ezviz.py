@@ -141,6 +141,7 @@ class CamEzviz:
         root.mainloop()
 
     def undistortion_thread(self, q_in: queue.Queue, q_out: queue.Queue):
+   # ToDo: move undistortion_thread to CamIntrinsics
         while True:
             img = q_in.get()
             if img is None:

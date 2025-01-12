@@ -5,6 +5,20 @@ when returning home. Parking spaces are available along the street and therefore
 camera has to be rotated and more images have to be taken in order to cover the 
 whole area.
 
+## How to run
+1) Clone the repo
+2) Create Venv
+3) Install requirements.txt
+4) Run:
+    - `cd` into `pythonProject` directory: <br>
+      `cd pythonProject`
+    - add the `pythonProject` directory to PYTHONPATH because `pythonProject` itself must be importable as a package: <br>
+      `export PYTHONPATH=$(pwd)/..`
+    - run `images_stitch_and_detect.py` script to perform stitching and detection on supplied demo images: <br>
+      `python -m pythonProject.images_stitch_and_detect`
+    - optionally specify which scenario to use with `--img` parameter: <br>
+      `python -m pythonProject.images_stitch_and_detect --img "../imgs/testing/night_demo_3"`
+
 ## Used HW and SW
 * EZVIZ Camera:
   * https://www.ezviz.com/product/c6n/9046
