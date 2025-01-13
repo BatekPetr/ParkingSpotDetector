@@ -43,6 +43,7 @@ stitching and detections. Set-up of environment variables for EZVIZ camera nas u
   * Unofficial Python package for controlling Ezviz camera implementing python-Ezviz API.
 * OpenCV 4.10.0
 * Python 3.12
+* Ubuntu 22.04.1 (but shall work on other distros and Windows as well.)
 
 ## Project creation description
 0) Find Camera intrinsic parameters for image rectification.
