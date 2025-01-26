@@ -52,7 +52,7 @@ class YOLODetector:
                 # check if confidence is greater than 40 percent
                 if box_conf > confidence:
                     # get coordinates
-                    [x1, y1, x2, y2] = box.xyxy[0]
+                    [x1, y1, x2, y2] = box.xyxy[0].cpu()
                     bbox = np.array([(x1, y1), (x2, y2)])
                     # Find center of box detection
                     center = np.array([(x1 + x2) / 2, (y1 + y2) / 2])
